@@ -1,6 +1,6 @@
 # Bỏ qua file môi trường chứa key bí mật
 .env
-
+config.json
 # Bỏ qua các file rác của Python
 __pycache__/
 *.pyc
