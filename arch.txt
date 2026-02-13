@@ -1,0 +1,19 @@
+~/repo/PersonalAI_OS/
+│
+├── main.py                 # (Gateway) Trạm gác: Hứng Webhook Strava & Telegram, điều phối task
+├── requirements.txt        # Các thư viện Python
+├── .env                    # Lưu API Keys (Gemini, Strava, Telegram)
+│
+├── agents/                 # Nơi chứa "Não bộ" của các Agent
+│   ├── __init__.py
+│   ├── coach_agent.py      # Kịch bản suy luận của Coach Dyno
+│   └── news_agent.py       # (Để dành cho tương lai)
+│
+├── tools/                  # Nơi chứa "Tay chân" (Công cụ cho AI gọi)
+│   ├── __init__.py
+│   ├── strava_tools.py     # Các hàm tải CSV, tính TRIMP, Power
+│   └── notify_tools.py     # Các hàm gửi Telegram, Email
+│
+└── data/                   # Nơi chứa "Trí nhớ"
+    ├── memory.sqlite       # (Tương lai) Database lưu ngữ cảnh chat
+    └── config.json         # Lưu System Prompt, User Profile

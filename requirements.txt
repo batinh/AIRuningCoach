@@ -4,6 +4,7 @@ requests
 python-dotenv
 google-generativeai>=0.8.3
 pandas
+numpy
 pydantic
 jinja2
 python-multipart
