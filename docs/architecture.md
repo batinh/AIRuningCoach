@@ -1,33 +1,27 @@
-# System Architecture
-
-## Overview
-The system operates as an event-driven middleware. It bypasses local network restrictions (NAT) using SSH Reverse Tunneling to receive real-time updates from Strava.
-
-## Architecture Diagram
-
-```mermaid
 graph TD
-    subgraph "External Cloud"
-        User((User / Garmin)) -- 1. Sync --> STRAVA[Strava API]
-        GEMINI[Google Gemini AI]
-        Tunnel_Host["Tunnel Service (localhost.run)"]
-    end
-
-    subgraph "Secure Tunnel"
-        STRAVA -- 2. Webhook Event --> Tunnel_Host
-        Tunnel_Host == 3. Forward Traffic ==> SSH_Client
-    end
-
-    subgraph "Home Server (OMV)"
-        SSH_Client["SSH Client Process"] -- 4. Localhost:8000 --> APP["Python Application (FastAPI)"]
+    User((User)) <-->|Chat/Query| Interface[Telegram/Web UI]
+    Strava[Strava Webhook] -->|Data| AgentCore
+    Weather[Weather API] -->|Context| AgentCore
+    
+    subgraph "The AI AGENT (Brain)"
+        AgentCore{Orchestrator (Gemini)}
         
-        APP -- 5. Fetch Streams --> STRAVA
-        APP -- 6. Send Context + Data --> GEMINI
-        GEMINI -- 7. Return Analysis --> APP
-        APP -- 8. Update Description --> STRAVA
+        subgraph "Memory (RAG)"
+            ShortTerm[Log bài tập tuần này]
+            LongTerm[Lịch sử chấn thương, PR cũ]
+            Knowledge[Sách/Giáo án chạy bộ]
+        end
+        
+        subgraph "Tools (Tay chân)"
+            Tool_Analysis[Phân tích CSV (Code hiện tại)]
+            Tool_Plan[Lập lịch tập (Google Calendar)]
+            Tool_Weather[Check thời tiết]
+            Tool_Search[Search Google (Kiến thức mới)]
+        end
     end
 
-    %% Styles
-    style STRAVA fill:#fc4c02,stroke:#333,color:white
-    style GEMINI fill:#4285F4,stroke:#333,color:white
-    style APP fill:#00C853,stroke:#333,color:white
+    AgentCore <--> Memory
+    AgentCore --> Tools
+    
+    Tools -->|Update| StravaOutput[Strava Activity]
+    Tools -->|Notify| Email_Telegram[Alert]

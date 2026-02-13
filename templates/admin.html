@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏃‍♂️ AI Coach Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .log-box { background: #1e1e1e; color: #00ff00; height: 300px; overflow-y: scroll; font-family: monospace; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-primary mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="#">🏃‍♂️ AI Running Coach Admin</a>
+            <span class="badge bg-warning text-dark">Status: {{ "RUNNING" if service_active else "PAUSED" }}</span>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-dark text-white">⚙️ System Control</div>
+                    <div class="card-body">
+                        <form action="/admin/toggle" method="post" class="d-inline">
+                            {% if service_active %}
+                            <button type="submit" class="btn btn-danger w-100">⏸ PAUSE SERVICE (Stop Processing)</button>
+                            {% else %}
+                            <button type="submit" class="btn btn-success w-100">▶️ RESUME SERVICE</button>
+                            {% endif %}
+                        </form>
+                        <hr>
+                        <a href="/admin/test-email" class="btn btn-outline-primary w-100">📧 Test Email Notification</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                 <div class="card">
+                    <div class="card-header bg-dark text-white">📜 Live Logs (Last 50 lines)</div>
+                    <div class="card-body p-0">
+                        <div class="log-box" id="logBox">{{ logs }}</div>
+                    </div>
+                 </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-primary text-white">📝 Configuration Editor</div>
+            <div class="card-body">
+                <form action="/admin/save" method="post">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">System Instruction (AI Role)</label>
+                        <textarea class="form-control" name="system_instruction" rows="2">{{ config.system_instruction }}</textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">User Profile</label>
+                        <textarea class="form-control" name="user_profile" rows="4">{{ config.user_profile }}</textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Task Description</label>
+                        <textarea class="form-control" name="task_description" rows="2">{{ config.task_description }}</textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Analysis Requirements</label>
+                        <textarea class="form-control" name="analysis_requirements" rows="4">{{ config.analysis_requirements }}</textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Output Format</label>
+                        <textarea class="form-control" name="output_format" rows="4">{{ config.output_format }}</textarea>
+                    </div>
+                    
+                    <h5 class="mt-4 text-primary">📧 Email Settings</h5>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Sender Email (Gmail)</label>
+                            <input type="text" class="form-control" name="email_sender" value="{{ config.email_config.sender_email }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">App Password</label>
+                            <input type="password" class="form-control" name="email_password" value="{{ config.email_config.sender_password }}">
+                        </div>
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label">Receiver Email</label>
+                            <input type="text" class="form-control" name="email_receiver" value="{{ config.email_config.receiver_email }}">
+                        </div>
+                         <div class="col-md-12 mb-3 form-check ms-3">
+                            <input class="form-check-input" type="checkbox" name="email_enabled" id="emailEnabled" {% if config.email_config.enabled %}checked{% endif %}>
+                            <label class="form-check-label" for="emailEnabled">Enable Email Notification</label>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-lg w-100 mt-3">💾 SAVE CONFIGURATION</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Auto scroll to bottom of logs
+        var logBox = document.getElementById("logBox");
+        logBox.scrollTop = logBox.scrollHeight;
+    </script>
+</body>
+</html>
