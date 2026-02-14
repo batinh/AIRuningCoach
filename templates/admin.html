@@ -32,7 +32,27 @@
                             {% endif %}
                         </form>
                         <hr>
-                        <a href="/admin/test-email" class="btn btn-outline-primary w-100">📧 Test Email Notification</a>
+                        <button type="button" onclick="testEmail()" class="btn btn-outline-primary w-100">📧 Test Email Notification</button>
+                        <script>
+                        async function testEmail() {
+                            const logBox = document.getElementById("logBox");
+                            logBox.innerHTML += "\n[SYSTEM] Sending test email...";
+
+                            try {
+                                const response = await fetch('/admin/test-email');
+                                const result = await response.json();
+
+                                if (result.status === 'success') {
+                                    logBox.innerHTML += "\n[SUCCESS] Email sent! Check your inbox.";
+                                } else {
+                                    logBox.innerHTML += "\n[ERROR] Failed: " + result.message;
+                                }
+                            } catch (err) {
+                                logBox.innerHTML += "\n[ERROR] Network error: " + err;
+                            }
+                            logBox.scrollTop = logBox.scrollHeight;
+                        }
+                        </script>
                     </div>
                 </div>
             </div>
@@ -90,7 +110,41 @@
                             <label class="form-check-label" for="emailEnabled">Enable Email Notification</label>
                         </div>
                     </div>
-
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="debug_mode" id="debugMode" {% if config.debug_mode %}checked{% endif %}>
+                                <label class="form-check-label fw-bold text-danger" for="debugMode">🐞 Enable Deep Debug Logging (Show Prompts & Raw Data)</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-4 p-3 border rounded bg-light">
+                        <label class="form-label fw-bold text-primary">🧠 AI Brain Model (Live Switch)</label>
+                        <select class="form-select" name="model_name">
+                            <option value="models/gemini-flash-latest" {% if config.get('model_name') == 'models/gemini-flash-latest' %}selected{% endif %}>
+                                Gemini Flash Latest (Luôn là bản mới nhất - Quota thấp)
+                            </option>
+                            <option value="models/gemini-2.5-flash" {% if config.get('model_name') == 'models/gemini-2.5-flash' %}selected{% endif %}>
+                                Gemini 2.5 Flash (Smarter - Tốt cho phân tích chuyên sâu)
+                            </option>
+                            <option value="models/gemini-2.0-flash" {% if config.get('model_name') == 'models/gemini-2.0-flash' %}selected{% endif %}>
+                                Gemini 2.0 Flash (Recommended - Ổn định & Nhanh)
+                            </option>
+                            
+                            <option value="models/gemini-1.5-flash" {% if config.get('model_name') == 'models/gemini-1.5-flash' %}selected{% endif %}>
+                                Gemini 1.5 Flash (Rất ổn định - Quota cao)
+                            </option>
+                    
+                            <option value="models/gemini-2.0-flash-lite-preview-02-05" {% if config.get('model_name') == 'models/gemini-2.0-flash-lite-preview-02-05' %}selected{% endif %}>
+                                Gemini 2.0 Flash Lite (Bản nhẹ - Siêu tốc)
+                            </option>
+                            
+                            <option value="models/gemini-2.0-pro-exp-02-05" {% if config.get('model_name') == 'models/gemini-2.0-pro-exp-02-05' %}selected{% endif %}>
+                                Gemini 2.0 Pro Experimental (Rất thông minh - Hay bị giới hạn)
+                            </option>
+                        </select>
+                        <div class="form-text text-muted">Thay đổi có hiệu lực ngay lập tức cho tin nhắn tiếp theo.</div>
+                    </div>
                     <button type="submit" class="btn btn-primary btn-lg w-100 mt-3">💾 SAVE CONFIGURATION</button>
                 </form>
             </div>

@@ -1,100 +1,141 @@
 import os
-import json
 import logging
 import google.generativeai as genai
-
 from tools.notify_tools import send_telegram_msg
-from tools.strava_tools import calculate_trimp
-
+# Configure logging
 logger = logging.getLogger(__name__)
-
-# Initialize Gemini Client
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-def load_prompt() -> str:
-    """Load the System Instruction from config file."""
+def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str, config: dict):
+    """
+    Sends Raw Run Data (CSV) to Gemini for detailed analysis.
+    """
+    logger.info(f"[COACH AGENT] Analyzing run: {activity_name} (ID: {activity_id})")
+
+    system_instruction = config.get("system_instruction", "You are Coach Dyno.")
+    user_profile = config.get("user_profile", "")
+    analysis_requirements = config.get("analysis_requirements", "Analyze HR and Power.")
+    output_format = config.get("output_format", "Output in Vietnamese.")
+    
+    # --- DEBUG: CHECK MODE ---
+    debug_mode = config.get("debug_mode", False)
+    
+    # 1. LẤY TÊN MODEL TỪ CONFIG (Live Affect)
+    # Mặc định về 2.0 Flash nếu config chưa có
+    current_model_name = config.get("model_name", "models/gemini-2.0-flash")
+    
+    if config.get("debug_mode"):
+        logger.info(f"[SYSTEM] Initializing AI Brain: {current_model_name}")
+    
+    # 2. KHỞI TẠO CLIENT
     try:
-        with open("data/config.json", "r", encoding="utf-8") as f:
-            config = json.load(f)
-            return config.get("system_instruction", "You are Coach Dyno.")
-    except FileNotFoundError:
-        logger.warning("[COACH AGENT] config.json not found. Using default persona.")
-        return "You are Coach Dyno, a strict running coach and data analyst."
+        model = genai.GenerativeModel(
+            model_name=current_model_name,
+            system_instruction=system_instruction
+        )
+        # ... tiếp tục logic generate ...
+    except Exception as e:
+        logger.error(f"Error initializing model {current_model_name}: {e}")
+        return None
 
-# ==========================================
-# DEFINING TOOLS FOR THE AGENT
-# ==========================================
-def tool_send_telegram(message: str) -> str:
-    """
-    Use this tool to send immediate alerts, warnings, or direct feedback to the User via Telegram.
-    This MUST be called when the user violates training rules or asks a direct question.
-    """
-    logger.info(f">>> [TOOL EXECUTED] Sending Telegram message: {message}")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    
-    success = send_telegram_msg(chat_id, message)
-    return "Message sent successfully." if success else "Failed to send message."
-
-def tool_analyze_run_data(activity_id: str) -> dict:
-    """
-    Use this tool to analyze raw Strava run data and extract key metrics 
-    such as TRIMP (Training Impulse), average HR, and intensity level.
-    """
-    logger.info(f">>> [TOOL EXECUTED] Analyzing Activity ID: {activity_id}")
-    
-    # Placeholder for actual CSV fetching logic (to be integrated later)
-    simulated_duration = 45.0
-    simulated_hr = 165.0
-    
-    return calculate_trimp(duration_minutes=simulated_duration, avg_hr=simulated_hr)
-
-# Initialize the Generative Model with tools
-agent_model = genai.GenerativeModel(
-    model_name='gemini-flash-latest',
-    tools=[tool_send_telegram, tool_analyze_run_data],
-    system_instruction=load_prompt()
-)
-
-# ==========================================
-# AGENT WORKFLOWS
-# ==========================================
-def process_strava_run(activity_id: str):
-    """Workflow triggered when a new run is completed."""
-    logger.info("[COACH AGENT] Starting analysis for new run...")
-    
-    chat_session = agent_model.start_chat(enable_automatic_function_calling=True)
-    
+    # Construct Prompt
     prompt = f"""
-    A new run activity (ID: {activity_id}) has been uploaded.
-    Tasks:
-    1. Call `tool_analyze_run_data` to calculate the training load metrics.
-    2. Evaluate the metrics against the user's baseline (rFTP 315W) and current injury status (Achilles pain).
-    3. If the run was too intense for a recovery day, IMMEDIATELY call `tool_send_telegram` to warn the user.
-    4. Provide a short summary review to be updated on Strava description.
+    [TASK CONTEXT]
+    Activity Name: {activity_name}
+    User Profile: {user_profile}
+    
+    [ANALYSIS REQUIREMENTS]
+    {analysis_requirements}
+    
+    [OUTPUT FORMAT INSTRUCTION]
+    {output_format}
+    
+    [RAW DATA - CSV FORMAT]
+    (Time, HR, Velocity, Cadence, Grade)
+    {csv_data}
     """
     
-    try:
-        response = chat_session.send_message(prompt)
-        final_review = response.text
-        logger.info(f"[COACH AGENT] Final Review Generated:\n{final_review}")
+# --- DEBUG: LOG PROMPT (CLEAN VERSION) ---
+    if debug_mode:
+        logger.info("="*30 + " [DEBUG] PROMPT TO GEMINI " + "="*30)
         
-        # TODO: Implement Strava PUT request here to update description
+        # Tạo bản sao của prompt để log, thay thế data thật bằng placeholder
+        # Cách này giúp anh vẫn nhìn thấy System Instruction & User Profile
+        log_prompt = prompt.replace(csv_data, f"\n[...RAW CSV DATA HIDDEN ({len(csv_data)} bytes)...]\n")
+        
+        logger.info(log_prompt)
+        logger.info("="*80)
+    try:
+        response = model.generate_content(prompt)
+        analysis_text = response.text
+        
+        # --- DEBUG: LOG FULL RESPONSE ---
+        if debug_mode:
+            logger.info("="*30 + " [DEBUG] GEMINI RAW RESPONSE " + "="*30)
+            logger.info(analysis_text)
+            logger.info("="*80)
+            
+        logger.info("[COACH AGENT] Analysis generated successfully.")
+        return analysis_text
+    except Exception as e:
+        logger.error(f"[COACH AGENT] Gemini Error: {e}")
+        return None
+
+def handle_telegram_chat(chat_id: str, text: str, config: dict):
+    """
+    Workflow triggered when the user sends a message via Telegram.
+    """
+    # 1. Check Debug Mode & Log
+    debug_mode = config.get("debug_mode", False)
+    if debug_mode:
+        logger.info(f"[TELEGRAM] Processing message from {chat_id}: {text}")
+
+    # 2. Lấy tên Model từ Config (Live Switch)
+    current_model_name = config.get("model_name", "models/gemini-2.0-flash")
+    
+    # 3. Lấy System Instruction
+    system_instruction = config.get("system_instruction", "You are Coach Dyno.")
+    user_profile = config.get("user_profile", "")
+
+    # 4. Khởi tạo Model (Local Scope)
+    try:
+        model = genai.GenerativeModel(
+            model_name=current_model_name,
+            system_instruction=system_instruction
+        )
+    except Exception as e:
+        logger.error(f"[TELEGRAM] Error initializing model {current_model_name}: {e}")
+        send_telegram_msg(chat_id, "⚠️ System Error: Invalid AI Model configuration.")
+        return
+
+    # 5. Tạo Prompt
+    prompt = f"""
+    [USER CONTEXT]
+    {user_profile}
+
+    [USER MESSAGE]
+    {text}
+    
+    [INSTRUCTION]
+    Reply directly to the user. Be concise, strict but helpful.
+    """
+    
+    if debug_mode:
+        logger.info("="*30 + " [TELEGRAM DEBUG PROMPT] " + "="*30)
+        logger.info(prompt)
+
+    try:
+        # 6. Gọi Gemini
+        response = model.generate_content(prompt)
+        reply_text = response.text
+        
+        if debug_mode:
+            logger.info(f"[TELEGRAM DEBUG RESPONSE]: {reply_text}")
+
+        # 7. Gửi phản hồi về Telegram
+        send_telegram_msg(chat_id, reply_text)
         
     except Exception as e:
-        logger.error(f"[COACH AGENT] Error during processing: {e}")
-
-def handle_telegram_chat(chat_id: str, text: str):
-    """Workflow triggered when the user sends a message via Telegram."""
-    logger.info("[COACH AGENT] Replying to User's Telegram message...")
-    
-    chat_session = agent_model.start_chat(enable_automatic_function_calling=True)
-    
-    prompt = f"""
-    The user just sent you a direct message: '{text}'. 
-    Analyze the context and use `tool_send_telegram` to reply directly to them.
-    """
-    
-    try:
-        chat_session.send_message(prompt)
-    except Exception as e:
-        logger.error(f"[COACH AGENT] Error during chat handling: {e}")
+        # --- ĐÂY LÀ ĐOẠN BỊ LỖI TRƯỚC ĐÓ, HÃY CHÉP KỸ ---
+        logger.error(f"[TELEGRAM] Error during chat handling: {e}")
+        send_telegram_msg(chat_id, "⚠️ Coach Dyno đang bị 'chuột rút' (Lỗi API). Thử lại sau nhé!")

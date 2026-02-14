@@ -1,63 +1,189 @@
 import os
+import json
 import logging
-from fastapi import FastAPI, Request, BackgroundTasks
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from collections import deque
+from typing import Optional
+
+from fastapi import FastAPI, Request, Form, BackgroundTasks
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse, RedirectResponse
 from dotenv import load_dotenv
 
-from agents.coach_agent import process_strava_run, handle_telegram_chat
+# --- SỬA DÒNG IMPORT QUAN TRỌNG NÀY ---
+# Import đúng hàm mới từ coach_agent và tool Strava
+from agents.coach_agent import analyze_run_with_gemini, handle_telegram_chat
+from tools.strava_client import StravaClient
 
-# Initialize environment and logging
+# --- SETUP ---
 load_dotenv()
+
+# Logging for Admin Dashboard
+log_capture_string = deque(maxlen=50)
+class ListHandler(logging.Handler):
+    def emit(self, record):
+        log_capture_string.append(self.format(record))
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("AI_COACH")
+logger.addHandler(ListHandler())
 
 app = FastAPI()
+templates = Jinja2Templates(directory="templates")
+CONFIG_PATH = "data/config.json"
+SERVICE_ACTIVE = True
 
-# ==========================================
-# 1. STRAVA WEBHOOK ROUTING
-# ==========================================
+# --- HELPER FUNCTIONS ---
+def load_config():
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except: return {}
+    return {}
+
+def save_config(data):
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def send_html_email(subject, html_content, config):
+    """Send beautiful HTML email."""
+    email_cfg = config.get("email_config", {})
+    if not email_cfg.get("enabled"): return
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = email_cfg['sender_email']
+        msg['To'] = email_cfg['receiver_email']
+        msg['Subject'] = subject
+        msg.attach(MIMEText(html_content, 'html'))
+
+        server = smtplib.SMTP(email_cfg['smtp_server'], int(email_cfg['smtp_port']))
+        server.starttls()
+        server.login(email_cfg['sender_email'], email_cfg['sender_password'])
+        server.send_message(msg)
+        server.quit()
+        logger.info(f"[EMAIL] Sent report to {email_cfg['receiver_email']}")
+    except Exception as e:
+        logger.error(f"[EMAIL] Failed: {e}")
+
+# --- WORKFLOW: STRAVA PROCESS ---
+def run_strava_workflow(activity_id: str):
+    if not SERVICE_ACTIVE: return
+    
+    config = load_config()
+    client = StravaClient()
+    
+    # 1. Fetch Data & Convert to CSV
+    logger.info(f"[*] Fetching data for Activity {activity_id}...")
+    act_name, csv_data = client.get_activity_data(activity_id)
+    
+    if not csv_data:
+        logger.warning("[!] No valid data found (or not a run).")
+        return
+
+    # 2. Analyze with Gemini
+    logger.info("[*] Sending CSV data to Gemini...")
+    # Gọi đúng tên hàm mới ở đây
+    analysis_text = analyze_run_with_gemini(activity_id, act_name, csv_data, config)
+    
+    if analysis_text:
+        # 3. Update Strava Description
+        client.update_activity_description(activity_id, analysis_text)
+        
+        # 4. Send Email Report
+        email_body = f"""
+        <h2>🏃‍♂️ Run Analysis: {act_name}</h2>
+        <p><a href="https://www.strava.com/activities/{activity_id}">View on Strava</a></p>
+        <hr>
+        <pre style="white-space: pre-wrap; font-family: sans-serif;">{analysis_text}</pre>
+        """
+        send_html_email(f"Coach Dyno Report: {act_name}", email_body, config)
+
+# --- ROUTES ---
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(request: Request):
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "config": load_config(),
+        "logs": "\n".join(list(log_capture_string)),
+        "service_active": SERVICE_ACTIVE
+    })
+
+@app.post("/admin/save")
+async def save_settings(
+    request: Request,
+    system_instruction: str = Form(...),
+    user_profile: str = Form(...),
+    task_description: str = Form(...),
+    analysis_requirements: str = Form(...),
+    output_format: str = Form(...),
+    email_sender: str = Form(""),
+    email_password: str = Form(""),
+    email_receiver: str = Form(""),
+    email_enabled: Optional[str] = Form(None),
+    debug_mode: Optional[str] = Form(None),
+    model_name: str = Form("models/gemini-2.0-flash")
+):
+    config = load_config()
+    config["system_instruction"] = system_instruction
+    config["user_profile"] = user_profile
+    config["task_description"] = task_description
+    config["analysis_requirements"] = analysis_requirements
+    config["output_format"] = output_format
+    
+    # Email Config
+    if "email_config" not in config: config["email_config"] = {}
+    config["email_config"]["sender_email"] = email_sender
+    config["email_config"]["sender_password"] = email_password
+    config["email_config"]["receiver_email"] = email_receiver
+    config["email_config"]["enabled"] = True if email_enabled == "on" else False
+    config["email_config"]["smtp_server"] = "smtp.gmail.com"
+    config["email_config"]["smtp_port"] = 587
+    # --- 2. THÊM ĐOẠN NÀY ĐỂ LƯU DEBUG MODE ---
+    config["debug_mode"] = True if debug_mode == "on" else False
+    # ------------------------------------------
+    # --- CẬP NHẬT MODEL ---
+    config["model_name"] = model_name
+    save_config(config)
+    logger.info(f"Configuration saved. Active Model: {config['model_name']}")
+    # Log ra để kiểm tra
+    logger.info(f"Config Saved. Debug Mode is now: {config['debug_mode']}")
+    
+    return RedirectResponse(url="/admin", status_code=303)
+@app.get("/admin/test-email")
+async def test_email_route():
+    try:
+        cfg = load_config()
+        send_html_email("Test Email", "<h1>It Works!</h1>", cfg)
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/webhook")
+async def strava_event(request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    if data.get("object_type") == "activity" and data.get("aspect_type") == "create":
+        activity_id = data.get("object_id")
+        logger.info(f"[WEBHOOK] New Activity {activity_id}. Starting workflow.")
+        background_tasks.add_task(run_strava_workflow, activity_id)
+    return {"status": "ok"}
+
 @app.get("/webhook")
 def verify_strava(request: Request):
-    """Handle Strava webhook verification."""
     if request.query_params.get("hub.verify_token") == os.getenv("VERIFY_TOKEN"):
         return {"hub.challenge": request.query_params.get("hub.challenge")}
     return {"error": "Invalid token"}
 
-@app.post("/webhook")
-async def strava_event(request: Request, background_tasks: BackgroundTasks):
-    """Handle incoming run data from Strava."""
-    data = await request.json()
-    
-    # Check if this is a new activity creation
-    if data.get("object_type") == "activity" and data.get("aspect_type") == "create":
-        activity_id = data.get("object_id")
-        logger.info(f"[GATEWAY] Received new Strava Activity: {activity_id}. Routing to Coach Dyno.")
-        
-        # Dispatch to background task to prevent Strava webhook timeout
-        background_tasks.add_task(process_strava_run, activity_id)
-        
-    return {"status": "ok"}
-
-# ==========================================
-# 2. TELEGRAM WEBHOOK ROUTING
-# ==========================================
 @app.post("/telegram-webhook")
 async def telegram_event(request: Request, background_tasks: BackgroundTasks):
-    """Handle incoming messages from Telegram Bot."""
     data = await request.json()
-    
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
         text = data["message"].get("text", "")
-        
-        logger.info(f"[GATEWAY] Received Telegram message from {chat_id}: {text}")
-        
-        # Simple router based on message commands
-        if text.startswith("/news"):
-            # Placeholder for future News Agent
-            # background_tasks.add_task(process_news, chat_id, text)
-            pass
-        else:
-            # Default routing to Coach Agent
-            background_tasks.add_task(handle_telegram_chat, chat_id, text)
-            
+        logger.info(f"[GATEWAY] Received Telegram: {text}")
+        config = load_config()
+        background_tasks.add_task(handle_telegram_chat, chat_id, text, config)
     return {"status": "ok"}
