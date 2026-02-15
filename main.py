@@ -47,28 +47,52 @@ def load_config():
 def save_config(data):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
-
 def send_html_email(subject, html_content, config):
-    """Send beautiful HTML email."""
+    """
+    Gửi email báo cáo.
+    - Server config: Lấy từ config.json
+    - Credentials: Lấy từ biến môi trường (.env)
+    """
+    # 1. Lấy Config công khai từ JSON
     email_cfg = config.get("email_config", {})
-    if not email_cfg.get("enabled"): return
+    if not email_cfg.get("enabled"): 
+        return
+
+    # 2. Lấy Credentials bí mật từ ENV
+    env_sender = os.getenv("EMAIL_SENDER")
+    env_password = os.getenv("EMAIL_PASSWORD")
+    env_receiver = os.getenv("EMAIL_RECEIVER")
+    
+    # Kiểm tra xem có đủ thông tin đăng nhập không
+    if not all([env_sender, env_password, env_receiver]):
+        logger.error("[EMAIL] Thiếu thông tin đăng nhập trong .env (EMAIL_SENDER/PASSWORD/RECEIVER)")
+        return
 
     try:
+        # 3. Lấy Server Info từ JSON (Nếu không có thì dùng mặc định Gmail)
+        smtp_server = email_cfg.get('smtp_server', 'smtp.gmail.com')
+        smtp_port = int(email_cfg.get('smtp_port', 587))
+
+        # 4. Cấu hình Email Message
         msg = MIMEMultipart()
-        msg['From'] = email_cfg['sender_email']
-        msg['To'] = email_cfg['receiver_email']
+        # [QUAN TRỌNG] Dùng biến từ ENV, KHÔNG dùng email_cfg['sender_email'] nữa
+        msg['From'] = env_sender       
+        msg['To'] = env_receiver       
         msg['Subject'] = subject
         msg.attach(MIMEText(html_content, 'html'))
 
-        server = smtplib.SMTP(email_cfg['smtp_server'], int(email_cfg['smtp_port']))
+        # 5. Kết nối và Gửi
+        server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
-        server.login(email_cfg['sender_email'], email_cfg['sender_password'])
+        # Đăng nhập bằng credentials từ ENV
+        server.login(env_sender, env_password)
         server.send_message(msg)
         server.quit()
-        logger.info(f"[EMAIL] Sent report to {email_cfg['receiver_email']}")
+        
+        logger.info(f"[EMAIL] Sent report to {env_receiver}")
+        
     except Exception as e:
         logger.error(f"[EMAIL] Failed: {e}")
-
 # --- WORKFLOW: STRAVA PROCESS ---
 def run_strava_workflow(activity_id: str):
     if not SERVICE_ACTIVE: return
@@ -120,9 +144,6 @@ async def save_settings(
     task_description: str = Form(...),
     analysis_requirements: str = Form(...),
     output_format: str = Form(...),
-    email_sender: str = Form(""),
-    email_password: str = Form(""),
-    email_receiver: str = Form(""),
     email_enabled: Optional[str] = Form(None),
     debug_mode: Optional[str] = Form(None),
     model_name: str = Form("models/gemini-2.0-flash")
@@ -136,9 +157,6 @@ async def save_settings(
     
     # Email Config
     if "email_config" not in config: config["email_config"] = {}
-    config["email_config"]["sender_email"] = email_sender
-    config["email_config"]["sender_password"] = email_password
-    config["email_config"]["receiver_email"] = email_receiver
     config["email_config"]["enabled"] = True if email_enabled == "on" else False
     config["email_config"]["smtp_server"] = "smtp.gmail.com"
     config["email_config"]["smtp_port"] = 587

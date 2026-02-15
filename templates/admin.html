@@ -93,18 +93,6 @@
                     
                     <h5 class="mt-4 text-primary">📧 Email Settings</h5>
                     <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Sender Email (Gmail)</label>
-                            <input type="text" class="form-control" name="email_sender" value="{{ config.email_config.sender_email }}">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">App Password</label>
-                            <input type="password" class="form-control" name="email_password" value="{{ config.email_config.sender_password }}">
-                        </div>
-                        <div class="col-md-12 mb-3">
-                            <label class="form-label">Receiver Email</label>
-                            <input type="text" class="form-control" name="email_receiver" value="{{ config.email_config.receiver_email }}">
-                        </div>
                          <div class="col-md-12 mb-3 form-check ms-3">
                             <input class="form-check-input" type="checkbox" name="email_enabled" id="emailEnabled" {% if config.email_config.enabled %}checked{% endif %}>
                             <label class="form-check-label" for="emailEnabled">Enable Email Notification</label>
