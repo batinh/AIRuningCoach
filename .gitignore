@@ -1,15 +1,26 @@
-# Bỏ qua file môi trường chứa key bí mật
-.env
-# Bỏ qua các file rác của Python
-__pycache__/
-*.pyc
+# --- System Files ---
+.DS_Store
+Thumbs.db
 
-# Bỏ qua thư mục ảo (nếu có dùng venv)
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
 venv/
 env/
-.idea/
-.vscode/
-# --- Infrastructure ---
+
+# --- Environment & Secrets ---
+.env
+.env.local
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Infrastructure Data (QUAN TRỌNG) ---
 infra/nginx/
 infra/letsencrypt/
-infra/duckdns/*.log
+infra/duckdns/
+mysql/
+data/database.sqlite
+full_system_context.txt
