@@ -9,3 +9,7 @@ venv/
 env/
 .idea/
 .vscode/
+# --- Infrastructure ---
+infra/nginx/
+infra/letsencrypt/
+infra/duckdns/*.log
