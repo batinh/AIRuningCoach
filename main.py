@@ -16,7 +16,10 @@ from dotenv import load_dotenv
 # Import đúng hàm mới từ coach_agent và tool Strava
 from agents.coach_agent import analyze_run_with_gemini, handle_telegram_chat
 from tools.strava_client import StravaClient
+from tools.memory_db import init_db
 
+# Khởi tạo Database ngay khi load module
+init_db()
 # --- SETUP ---
 load_dotenv()
 

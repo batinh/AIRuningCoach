@@ -108,3 +108,40 @@ class StravaClient:
         except Exception as e:
             logger.error(f"[STRAVA] Error updating description: {e}")
             return False
+    def get_athlete_stats(self, athlete_id):
+        """Lấy tổng km chạy (Tuần/Tháng/Năm/Tổng)"""
+        # Đảm bảo có access_token mới nhất
+        token = self.get_access_token() 
+        
+        url = f"https://www.strava.com/api/v3/athletes/{athlete_id}/stats"
+        headers = {"Authorization": f"Bearer {token}"}
+        
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "recent_run_totals": data["recent_run_totals"]["distance"] / 1000,
+                    "ytd_run_totals": data["ytd_run_totals"]["distance"] / 1000,
+                    "all_run_totals": data["all_run_totals"]["distance"] / 1000
+                }
+            logger.error(f"Error fetching stats: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Stats Exception: {e}")
+        return None
+
+    def get_recent_activities(self, limit=10):
+        """Lấy danh sách các bài tập gần nhất"""
+        token = self.get_access_token()
+        
+        url = "https://www.strava.com/api/v3/athlete/activities"
+        headers = {"Authorization": f"Bearer {token}"}
+        params = {"per_page": limit}
+        
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            logger.error(f"Activities Exception: {e}")
+        return []

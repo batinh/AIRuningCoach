@@ -1,152 +1,169 @@
----
+Markdown
+<div align="center">
 
 # 🏃‍♂️ AI Running Coach (Coach Dyno)
+### Autonomous Agentic System v1.1
 
-**Project Owner:** TinhN (T440 Home Lab)
+![Status](https://img.shields.io/badge/Status-Live-success?style=for-the-badge)
+![AI Model](https://img.shields.io/badge/AI-Gemini%202.0%20Flash-blue?style=for-the-badge)
+![Docker](https://img.shields.io/badge/Docker-Monorepo-2496ED?style=for-the-badge)
+![Python](https://img.shields.io/badge/Python-3.9-yellow?style=for-the-badge)
 
-**Goal:** Xây dựng một AI Agent cá nhân hóa, tự động phân tích dữ liệu chạy bộ từ Strava, đưa ra lời khuyên chiến thuật và huấn luyện dựa trên mục tiêu Half Marathon Sub 1:45 (2026).
+*A personalized, proactive AI Agent running on Home Lab (Lenovo T440).*
+
+</div>
 
 ---
 
-## 🏗️ 1. System Architecture (Kiến trúc Hệ thống)
+## 📖 1. Overview
 
-Hệ thống hoạt động trên mô hình **Event-Driven Microservices** chạy trong Docker container, được host tại gia (Home Lab).
+**Coach Dyno** không chỉ là một chatbot. Đây là hệ thống **AI Agent** có khả năng tự nhận thức ngữ cảnh (Contextual Awareness), vận hành trên Home Lab cá nhân. Nó được thiết kế để "hiểu" dữ liệu tập luyện sâu sắc hơn và đồng hành cùng Runner đạt mục tiêu **Sub 1:45 Half Marathon (2026)**.
 
-### 📐 High-Level Data Flow
+### ✨ Key Capabilities
+* 🧠 **Contextual Memory:** Nhớ được nội dung hội thoại trước đó (Short-term RAM). Hiểu các câu hỏi nối tiếp (Follow-up questions).
+* 📊 **Deep Analysis:** Tự động phát hiện bài chạy mới từ Strava Webhook, phân tích Splits/HR/Cadence ngay lập tức.
+* 🛡️ **Decoupled Infrastructure:** Hạ tầng mạng (Nginx/SSL) chạy độc lập với trí tuệ nhân tạo (AI), đảm bảo sự ổn định tối đa.
+* 📧 **Professional Reporting:** Gửi email báo cáo chi tiết chuẩn HTML với các chỉ số chuyên sâu.
+
+---
+
+## 🏗️ 2. System Architecture
+
+Hệ thống sử dụng kiến trúc **Monorepo** với thiết kế **Decoupled Infrastructure** (Tách biệt hạ tầng).
 
 ```mermaid
 graph TD
-    User(Runner) -->|Upload Run| Strava[Strava Cloud]
-    Strava -->|Webhook POST| DuckDNS[DuckDNS Domain]
-    DuckDNS -->|Port 443| Nginx[Nginx Proxy Manager]
-    Nginx -->|Reverse Proxy| FastAPI[AI Coach Container]
-    
-    subgraph "AI Coach Container (Python/FastAPI)"
-        FastAPI -->|Trigger| Workflow[Main Workflow]
-        Workflow -->|Fetch Data| StravaClient[Strava Tools]
-        Workflow -->|Generate Prompt| Agent[Coach Agent]
-        Agent -->|API Call| Gemini[Google Gemini API]
-        Gemini -->|Analysis Text| Agent
-        Agent -->|Update Description| StravaClient
-        Agent -->|Notify| Telegram[Telegram Bot Tools]
+    %% Actors
+    User((🏃 Runner)) -->|Upload Run| Strava[Strava Cloud]
+    User -->|Chat| Telegram[Telegram Cloud]
+
+    %% Infrastructure Block
+    subgraph "INFRASTRUCTURE (Docker Network: runner-net)"
+        direction TB
+        DuckDNS[DuckDNS Updater]
+        Nginx[Nginx Proxy Manager]
+        SSL[Let's Encrypt]
     end
+
+    %% AI Application Block
+    subgraph "AI AGENT LOGIC"
+        direction TB
+        Agent[AI Coach Container]
+        Memory[(RAM Context Memory)]
+    end
+
+    %% Connections
+    Strava -->|Webhook POST| Nginx
+    Telegram -->|Webhook POST| Nginx
+    DuckDNS -.->|Update IP| CloudDNS
     
-    User -->|Chat/Query| Telegram
-    Telegram -->|Webhook| FastAPI
-
+    Nginx -->|Reverse Proxy| Agent
+    
+    Agent <-->|Read/Write| Memory
+    Agent <-->|Reasoning| Gemini[Google Gemini 2.0 Flash]
+    Agent -->|Fetch Data| StravaAPI[Strava Tools]
+    Agent -->|Send Report| SMTP[Gmail]
 ```
+📂 Project Structure
 
-### 📂 Project Structure (Modular Design)
-
-```bash
+Bash
 AIRunningCoach/
-├── agents/
-│   ├── __init__.py
-│   └── coach_agent.py    # Logic AI, tạo Prompt, gọi Gemini (Multi-model support)
-├── tools/
-│   ├── __init__.py
-│   ├── strava_client.py  # Xử lý Strava API (Fetch CSV, Update Activity)
-│   └── notify_tools.py   # Gửi tin nhắn Telegram/Email (Tách biệt để tái sử dụng)
-├── templates/
-│   └── admin.html        # Giao diện Web Admin (Config, Logs, Model Select)
-├── data/
-│   └── config.json       # Lưu cấu hình động (System Instruction, Model Name)
-├── main.py               # API Gateway (FastAPI), Webhook Handler
-├── Dockerfile            # Môi trường chạy (Python 3.11-slim)
-└── requirements.txt      # Dependencies (FastAPI, Google-GenAI, Pandas...)
+├── .env                # [SECRET] API Keys, Tokens (GitIgnore)
+├── docker-compose.yml  # Main Orchestrator
+├── main.py             # API Gateway & Webhook Handler
+│
+├── infra/              # [INFRASTRUCTURE] - Independent
+│   ├── nginx/          # Proxy Config & Database
+│   ├── letsencrypt/    # SSL Certificates
+│   └── duckdns/        # DDNS Config
+│
+├── agents/             # [THE BRAIN]
+│   └── coach_agent.py  # Logic AI, Memory, Prompting
+│
+├── tools/              # [THE HANDS]
+│   ├── strava_client.py
+│   └── notify_tools.py # Notification Senders
+│
+└── data/               # [DYNAMIC CONFIG]
+    └── config.json     # System Instruction & Persona
+📝 3. Change Log
+Version	Date	Key Highlights
+v1.1	Feb 2026	Context & Infra Update. Tách biệt hạ tầng Nginx. Thêm trí nhớ hội thoại (Memory). Hỗ trợ WireGuard (Port 4500). Bảo mật Token bằng .env.
+v1.0	Jan 2026	Genesis. Phiên bản đầu tiên. Tích hợp Strava Webhook. Phân tích cơ bản với Gemini 1.5.
+🗺️ 4. Roadmap: The Agentic Evolution
+🐣 Phase 1: Foundation (Completed)
 
-```
+[x] Xây dựng hạ tầng Docker & Nginx Proxy.
 
----
+[x] Kết nối Strava Webhook nhận dữ liệu chạy.
 
-## 🛠️ 2. Recent Bug Fixes (Nhật ký Sửa lỗi)
+[x] Tích hợp Gemini 1.5 Pro phân tích cơ bản.
 
-Danh sách các lỗi quan trọng đã được xử lý trong giai đoạn phát triển (Dev Phase 1):
+[x] Hệ thống báo cáo qua Email HTML & Telegram.
 
-* **[CRITICAL] Khắc phục lỗi Quota 429 (Google Gemini API):**
-* *Vấn đề:* Model `gemini-flash-latest` (Gemini 3.0 Preview) có giới hạn 20 request/ngày, gây crash hệ thống khi test nhiều.
-* *Giải pháp:* Thêm tính năng **Live Model Switch** trên Web Admin. Cho phép chuyển đổi nóng giữa `Gemini 2.0 Flash`, `Gemini 2.5 Flash` (Smart) và `Gemini 1.5 Flash` (Stable/Backup) mà không cần restart Docker.
+🧠 Phase 2: Cognition & Memory (Current)
 
+[x] Monorepo Structure: Tách biệt hạ tầng và logic ứng dụng.
 
-* **[FIX] Lỗi `NameError` trong Telegram Handler:**
-* *Vấn đề:* Tách hàm `send_telegram_msg` sang file `tools/notify_tools.py` nhưng quên import vào `agents/coach_agent.py`, dẫn đến bot không thể phản hồi.
-* *Giải pháp:* Thực hiện import đúng chuẩn module: `from tools.notify_tools import send_telegram_msg`.
+[x] Contextual Memory (RAM): Bot nhớ được hội thoại ngắn hạn.
 
+[ ] Reflexion: Agent tự đánh giá lại lời khuyên nếu người dùng phản hồi tiêu cực.
 
-* **[FIX] Syntax Error trong Exception Handling:**
-* *Vấn đề:* Lỗi copy-paste làm dính dòng lệnh `send_telegram_msg` vào `logger.error`, gây sập container khi có lỗi ngoại lệ.
-* *Giải pháp:* Clean code và chuẩn hóa block `try...except`.
+[ ] Error Recovery: Tự động retry khi Strava API lỗi hoặc Gemini quá tải (429).
 
+🏛️ Phase 3: Long-term Memory & RAG (Q2 2026)
 
-* **[FEATURE] Deep Debug Mode:**
-* *Vấn đề:* Cần xem Prompt gửi đi để tối ưu nhưng không muốn log toàn bộ raw CSV (gây rác log).
-* *Giải pháp:* Thêm chế độ Debug ẩn CSV (`[...RAW DATA HIDDEN...]`) nhưng vẫn hiện đầy đủ System Instruction và User Context.
+[ ] Database Integration: Chuyển từ RAM sang SQLite/PostgreSQL.
 
+[ ] RAG (Retrieval-Augmented Generation): "So sánh bài chạy hôm nay với tháng trước".
 
+[ ] Knowledge Base: Nạp kiến thức chạy bộ chuẩn (Jack Daniels) vào bộ nhớ.
 
----
+👁️ Phase 4: Perception (Late 2026)
 
-## 📝 3. Roadmap & Todo List
+[ ] Vision: Phân tích ảnh chụp màn hình Garmin/Coros.
 
-Dựa trên Project Charter ban đầu, dưới đây là lộ trình tiếp theo:
+[ ] Voice: Tích hợp Gemini Live chat voice khi chạy.
 
-### 🚀 Phase 1: Core Automation (✅ DONE)
+👨‍💻 5. Development Guidelines
+🚀 Deployment
 
-* [x] Thiết lập Docker & Nginx Proxy Manager.
-* [x] Kết nối Strava Webhook (Nhận dữ liệu Run).
-* [x] Tích hợp Gemini API (Phân tích dữ liệu CSV).
-* [x] Cập nhật lại Description trên Strava tự động.
-* [x] Web Admin Dashboard (Chỉnh sửa Prompt, xem Log).
-* [x] Gửi thông báo qua Telegram.
+Khởi động toàn bộ (Full Start):
 
-### 🧠 Phase 2: Intelligence & Memory (🚧 IN PROGRESS)
+Bash
+sudo docker-compose up -d --build
+Cập nhật AI Logic (Zero Downtime Infra):
 
-* [ ] **Contextual Chat (Trí nhớ hội thoại):**
-* *Mục tiêu:* Nâng cấp Telegram bot từ "Hỏi-Đáp 1 lần" sang "Chat qua lại".
-* *Tech:* Sử dụng `model.start_chat(history=...)` thay vì `generate_content`.
+Bash
+# Sử dụng alias 'update-ai' hoặc:
+docker-compose up -d --no-deps --build ai-coach
+🔒 Secret Management
 
+Never commit .env: File này chứa API Key.
 
-* [ ] **Long-term Memory (RAG Lite):**
-* *Mục tiêu:* Bot nhớ được các bài chạy quá khứ để so sánh (Ví dụ: "Hôm nay chạy tốt hơn tuần trước không?").
-* *Tech:* Lưu tóm tắt JSON vào `data/history.json` hoặc SQLite.
+Log Sanitization: Kiểm tra kỹ khi log raw JSON để tránh lộ token.
 
+📜 Monitoring
 
-* [ ] **Photo Analysis (Multimodal):**
-* *Mục tiêu:* Gửi ảnh chụp màn hình biểu đồ (Stryd/Garmin) để bot phân tích.
-* *Tech:* Tích hợp model `gemini-2.5-flash` xử lý ảnh.
+Xem log thời gian thực:
 
+Bash
+docker logs -f airunningcoach
+✅ 6. Immediate Todo List
+High Priority 🔴
 
+[ ] Backup Script: Script tự động zip folder infra/ upload lên Google Drive.
 
-### 📊 Phase 3: Advanced Coaching (PLANNING)
+[ ] Persona Tuning: Cập nhật config.json để Coach Dyno "có hồn" hơn.
 
-* [ ] **Weekly Plan Generator:** Tự động đề xuất lịch chạy tuần sau dựa trên Load tuần này.
-* [ ] **Injury Prediction:** Cảnh báo sớm nếu HR/Pace có dấu hiệu bất thường (Overreaching).
+[ ] Fix Strava Token: Cơ chế Refresh Token tự động mạnh mẽ hơn.
 
----
+Medium Priority 🟡
 
-## ⚙️ Configuration (Cấu hình)
+[ ] Dashboard UI: Web xem biểu đồ đơn giản (Streamlit).
 
-### Environment Variables (.env)
+[ ] Health Check: Endpoint /health cho Uptime Kuma.
 
-```env
-STRAVA_CLIENT_ID=xxxxx
-STRAVA_CLIENT_SECRET=xxxxx
-VERIFY_TOKEN=xxxxx
-GEMINI_API_KEY=xxxxx
-TELEGRAM_TOKEN=xxxxx (Lưu ý: Khớp tên biến trong tools/notify_tools.py)
-
-```
-
-### Web Admin URL
-
-* Truy cập: `https://tinhn.duckdns.org/admin`
-* Chức năng:
-* Chọn Model AI (2.0 Flash / 2.5 Flash).
-* Sửa System Instruction (User Profile, Style).
-* Bật/Tắt Debug Mode.
-
-
-
----
-
-*Last Updated: 2026-02-14 | Gap Month Project*
+<div align="center">
+<sub>Last Updated: Feb 2026 | Project Owner: TinhN</sub>
+</div>

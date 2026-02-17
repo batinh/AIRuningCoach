@@ -1,10 +1,11 @@
+import json
 import os
 import logging
 import google.generativeai as genai
 from tools.notify_tools import send_telegram_msg
-
+from tools.memory_db import save_message, load_history_for_gemini, clear_history
 # --- GLOBAL MEMORY (Bộ nhớ ngắn hạn - RAM) ---
-# Cấu trúc: { "chat_id": [history_object, ...] }
+# Cấu trúc: { "chat_id": [historxy_object, ...] }
 CHAT_HISTORY = {}
 MAX_HISTORY_LEN = 20  # Chỉ nhớ 20 câu gần nhất để tiết kiệm Token
 
@@ -19,8 +20,6 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
     # 1. Setup Context
     system_instruction = config.get("system_instruction", "You are Coach Dyno.")
     user_profile = config.get("user_profile", "")
-    
-    # Ghép Profile vào System Instruction để Bot hiểu sâu hơn
     full_instruction = f"{system_instruction}\n\n[USER PROFILE DATA]\n{user_profile}"
     
     analysis_requirements = config.get("analysis_requirements", "Analyze HR and Power.")
@@ -52,41 +51,63 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
     {csv_data}
     """
     
-    # Debug
     if config.get("debug_mode"):
         logger.info(f"[SYSTEM] Analyzing with Model: {current_model_name}")
         # Log prompt ẩn data
         log_prompt = prompt.replace(csv_data, f"\n[...CSV HIDDEN {len(csv_data)} bytes...]\n")
         logger.info(f"[PROMPT PREVIEW]\n{log_prompt}")
-
     try:
+        # 4. Gọi Gemini để phân tích
         response = model.generate_content(prompt)
-        return response.text
+        analysis_text = response.text
+
+        # 🚀 BƯỚC HỢP NHẤT: Lưu phân tích vào trí nhớ hội thoại
+        # Lấy Chat ID từ biến môi trường hoặc config để định danh ngăn kéo bộ nhớ của TinhN
+        import os
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        
+        if chat_id and analysis_text:
+            # Lưu vào DB với tiền tố [STRAVA] để AI sau này dễ nhận diện
+            save_message(str(chat_id), "model", f"[STRAVA ANALYSIS] {activity_name}: {analysis_text}")
+            logger.info(f"[MEMORY] Analysis merged into Chat History for ID: {chat_id}")
+
+        return analysis_text
+        
     except Exception as e:
         logger.error(f"[COACH AGENT] Gemini Error: {e}")
         return None
-
 # --- 2. WORKFLOW CHAT TELEGRAM (NÂNG CẤP CÓ TRÍ NHỚ) ---
+
 def handle_telegram_chat(chat_id: str, text: str, config: dict):
     """
-    Xử lý chat với bộ nhớ đệm (Contextual Memory).
+    Xử lý chat với bộ nhớ vĩnh cửu (SQLite Persistent Memory).
     """
     debug_mode = config.get("debug_mode", False)
     
     # A. Xử lý lệnh đặc biệt
     if text.strip().lower() in ["/clear", "/reset", "xóa nhớ"]:
-        if chat_id in CHAT_HISTORY:
-            del CHAT_HISTORY[chat_id]
-        send_telegram_msg(chat_id, "🧹 Đã xóa bộ nhớ tạm. Chúng ta bắt đầu lại nhé!")
+        clear_history(chat_id) # Xóa trong DB
+        send_telegram_msg(chat_id, "🧹 Đã xóa bộ nhớ vĩnh cửu. Chúng ta bắt đầu lại nhé!")
         return
 
-    # B. Cấu hình "Bộ não"
+    # B. Cấu hình "Bộ não" (Giữ nguyên logic cũ)
     current_model_name = config.get("model_name", "models/gemini-2.0-flash")
     system_instruction = config.get("system_instruction", "You are Coach Dyno.")
     user_profile = config.get("user_profile", "")
-
-    # C. Ghép "Nhân cách" + "Thông tin User" vào System Prompt
-    # (Đây là bí quyết để start_chat vẫn nhớ bạn là ai)
+# --- ĐỌC STATS TỪ FILE THU HOẠCH ---
+    dynamic_stats = ""
+    stats_path = "data/athlete_stats.json"
+    if os.path.exists(stats_path):
+        try:
+            with open(stats_path, "r") as f:
+                s = json.load(f)
+                dynamic_stats = (
+                    f"\n[ATHLETE CURRENT STATS]:\n"
+                    f"- 4 tuần gần đây: {s['recent_run_totals']:.1f} km\n"
+                    f"- Tổng năm nay: {s['ytd_run_totals']:.1f} km\n"
+                )
+        except Exception as e:
+            logger.error(f"Error reading stats: {e}")
     full_persona = f"""
     {system_instruction}
     
@@ -96,53 +117,38 @@ def handle_telegram_chat(chat_id: str, text: str, config: dict):
     [INSTRUCTION]
     - You are chatting directly with the user via Telegram.
     - Keep responses concise, helpful, and friendly.
-    - Remember previous context in this conversation.
     """
 
     try:
+        # C. Khôi phục lịch sử chat từ SQLITE
+        current_history = load_history_for_gemini(chat_id, limit=20)
+
         model = genai.GenerativeModel(
             model_name=current_model_name,
             system_instruction=full_persona
         )
-    except Exception as e:
-        logger.error(f"[TELEGRAM] Model Error: {e}")
-        send_telegram_msg(chat_id, f"⚠️ Lỗi model {current_model_name}. Hãy đổi model khác trên Web Admin.")
-        return
-
-    # D. Khôi phục lịch sử chat từ RAM
-    # Nếu chưa có thì tạo list rỗng
-    current_history = CHAT_HISTORY.get(chat_id, [])
-
-    if debug_mode:
-        logger.info(f"[TELEGRAM] Chatting with history ({len(current_history)} turns). Model: {current_model_name}")
-
-    try:
-        # E. BẮT ĐẦU CHAT VỚI LỊCH SỬ CŨ
+        
+        # D. BẮT ĐẦU CHAT VỚI LỊCH SỬ CŨ
+        # Lưu ý: Gemini tự động lưu tin nhắn mới vào chat_session.history
         chat_session = model.start_chat(history=current_history)
         
         # Gửi tin nhắn mới
         response = chat_session.send_message(text)
         reply_text = response.text
 
-        # F. Cập nhật lại lịch sử vào RAM
-        # Chỉ giữ lại MAX_HISTORY_LEN tin mới nhất để tiết kiệm
-        updated_history = chat_session.history
-        if len(updated_history) > MAX_HISTORY_LEN:
-            updated_history = updated_history[-MAX_HISTORY_LEN:]
-        
-        CHAT_HISTORY[chat_id] = updated_history
+        # E. LƯU CẢ TIN NHẮN MỚI VÀ PHẢN HỒI VÀO DB
+        save_message(chat_id, "user", text)
+        save_message(chat_id, "model", reply_text)
 
-        # Gửi kết quả
+        if debug_mode:
+            logger.info(f"[TELEGRAM] Chatting with DB history ({len(current_history)} turns).")
+
+        # F. Gửi kết quả
         send_telegram_msg(chat_id, reply_text)
         
     except Exception as e:
         logger.error(f"[TELEGRAM] Chat Error: {e}")
-        # Nếu lỗi (do token quá dài hoặc model crash), thử xóa nhớ và chat lại 1 lần
         if "400" in str(e) or "token" in str(e).lower():
-            if chat_id in CHAT_HISTORY:
-                del CHAT_HISTORY[chat_id]
-                send_telegram_msg(chat_id, "⚠️ Bộ nhớ đầy, tôi đã tự động reset để tiếp tục cuộc trò chuyện.")
-                # Thử gọi lại đệ quy 1 lần (cẩn thận loop)
-                # handle_telegram_chat(chat_id, text, config) 
+            send_telegram_msg(chat_id, "⚠️ Bộ nhớ hội thoại quá dài. Hãy gõ /clear để dọn dẹp.")
         else:
-            send_telegram_msg(chat_id, "⚠️ Coach Dyno đang bị 'chuột rút' (Lỗi API). Thử /clear xem sao!")
+            send_telegram_msg(chat_id, "⚠️ Coach Dyno đang bị 'chuột rút'. Thử /clear xem sao!")
