@@ -1,0 +1,44 @@
+version: '3.8'
+services:
+  # --- 1. NGINX PROXY MANAGER ---
+  nginx-proxy:
+    image: 'jc21/nginx-proxy-manager:latest'
+    container_name: nginx_proxy_manager
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '81:81'
+      - '443:443'
+      - '4500:80' # Port forwarding dự phòng nếu cần
+    volumes:
+      # Sửa đường dẫn trỏ vào thư mục infra
+      - ./infra/nginx:/data
+      - ./infra/letsencrypt:/etc/letsencrypt
+
+  # --- 2. AI RUNNING COACH ---
+  ai-coach:
+    build: .  # Sửa thành dấu chấm (.) vì Dockerfile đang nằm ngay cạnh docker-compose
+    container_name: airunningcoach
+    restart: unless-stopped
+    ports:
+      - '8000:8000'
+    env_file:
+      - .env  # File .env giờ nằm cùng cấp
+    volumes:
+      - .:/app # Mount thư mục hiện tại vào container
+
+  # --- 3. DUCKDNS ---
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    container_name: duckdns
+    network_mode: host
+    environment:
+      - PUID=1000
+      - PGID=100
+      - TZ=Asia/Ho_Chi_Minh
+      - SUBDOMAINS={DUCKDNS_SUB_DOMAIN}
+      - TOKEN=${DUCKDNS_TOKEN}
+      - LOG_FILE=false
+    volumes:
+      - ./infra/duckdns:/config # Sửa đường dẫn
+    restart: unless-stopped
