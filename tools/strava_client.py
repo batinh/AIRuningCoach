@@ -2,6 +2,7 @@ import os
 import logging
 import requests
 import pandas as pd
+import numpy as np
 from dotenv import load_dotenv
 
 # Initialize logging
@@ -34,22 +35,21 @@ class StravaClient:
 
     def get_activity_data(self, activity_id: str):
         """
-        Fetch activity streams (HR, Cadence, Velocity) and convert to CSV string.
-        Returns: (activity_name, csv_data_string)
+        Lấy Full Data: Streams (CSV), Metadata (Splits, Laps, PRs).
+        Returns: (activity_name, csv_data, extended_meta)
         """
         token = self.get_access_token()
-        if not token:
-            return None, None
+        if not token: return None, None, None
 
         headers = {'Authorization': f'Bearer {token}'}
         
-        # 1. Get Activity Details (Name, Type)
         try:
+            # 1. Lấy Activity Detail (Chứa Laps, Splits, Best Efforts)
             act_url = f"{self.base_url}/activities/{activity_id}"
             act_res = requests.get(act_url, headers=headers)
             if act_res.status_code != 200:
                 logger.error(f"[STRAVA] Error fetching activity: {act_res.text}")
-                return None, None
+                return None, None, None
             
             act_data = act_res.json()
             activity_name = act_data.get('name', 'Unknown Run')
@@ -57,36 +57,88 @@ class StravaClient:
             # Check type (Run, VirtualRun, etc.)
             if act_data.get('type') not in ['Run', 'VirtualRun', 'TrailRun', 'Treadmill']:
                 logger.info(f"[STRAVA] Activity {activity_id} is not a run. Skipping.")
-                return None, None
+                return None, None, None
 
-            # 2. Get Streams
-            streams_url = f"{act_url}/streams?keys=time,heartrate,velocity_smooth,cadence,grade_smooth&key_by_type=true"
+            # 2. Trích xuất thông tin Splits & Laps & Metadata
+            # Splits (Mỗi 1km)
+            splits = act_data.get('splits_metric', [])
+            splits_summary = []
+            for s in splits:
+                splits_summary.append({
+                    "km": s.get('split'),
+                    "pace": s.get('average_speed'), # m/s
+                    "hr": s.get('average_heartrate', 0)
+                })
+
+            # Laps (Nếu có bấm Lap)
+            laps = act_data.get('laps', [])
+            laps_summary = []
+            for l in laps:
+                laps_summary.append({
+                    "lap_name": l.get('name'),
+                    "distance": l.get('distance'),
+                    "pace": l.get('average_speed'),
+                    "hr": l.get('average_heartrate', 0)
+                })
+
+            # Đóng gói dữ liệu bổ sung (Metadata)
+            extended_meta = {
+                "suffer_score": act_data.get('suffer_score'),
+                "calories": act_data.get('calories'),
+                "device_name": act_data.get('device_name'),
+                "splits": splits_summary,
+                "laps": laps_summary,
+                "best_efforts": act_data.get('best_efforts', []) # PRs
+            }
+
+            # 3. Lấy Streams (Dữ liệu từng giây)
+            streams_url = f"{act_url}/streams?keys=time,heartrate,velocity_smooth,cadence,grade_smooth,watts&key_by_type=true"
             streams_res = requests.get(streams_url, headers=headers).json()
 
-            # 3. Process with Pandas (Logic ported from old script)
+            # 4. Xử lý DataFrame Pandas (PHẦN QUAN TRỌNG ĐÃ BỊ THIẾU TRƯỚC ĐÓ)
             data = {
                 'Time_sec': streams_res.get('time', {}).get('data', []),
                 'HR_bpm': streams_res.get('heartrate', {}).get('data', []),
                 'Velocity_m_s': streams_res.get('velocity_smooth', {}).get('data', []),
                 'Cadence_spm': streams_res.get('cadence', {}).get('data', []),
-                'Grade_pct': streams_res.get('grade_smooth', {}).get('data', [])
+                'Grade_pct': streams_res.get('grade_smooth', {}).get('data', []),
+                'Power_watts': streams_res.get('watts', {}).get('data', []) # New: Power
             }
             
-            # Create DataFrame
-            df = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in data.items()]))
+            # Create DataFrame safely
+            df = pd.DataFrame({'Time_sec': data['Time_sec']})
             
-            # Clean data (Drop rows with missing critical data)
+            for col, values in data.items():
+                if col != 'Time_sec':
+                    s = pd.Series(values)
+                    df[col] = s.reindex(df.index)
+
+            # Clean data
             df.dropna(subset=['HR_bpm', 'Velocity_m_s'], inplace=True)
             
+            # Feature Engineering: Calculate Stride Length
+            # Formula: Stride (m) = Speed (m/s) * 60 / Cadence (spm)
+            df['Stride_m'] = df.apply(
+                lambda row: (row['Velocity_m_s'] * 60 / row['Cadence_spm']) if row['Cadence_spm'] > 0 else 0, 
+                axis=1
+            )
+
+            # Fill missing Power with 0
+            if 'Power_watts' in df.columns:
+                df['Power_watts'] = df['Power_watts'].fillna(0)
+            
+            # Round for cleaner CSV token usage
+            df = df.round({'Velocity_m_s': 2, 'Stride_m': 2, 'Grade_pct': 1})
+
             # Convert to CSV string for Gemini
             csv_data = df.to_csv(index=False)
-            logger.info(f"[STRAVA] Successfully processed CSV data for {activity_id}")
+            logger.info(f"[STRAVA] Successfully processed CSV data with Dynamics for {activity_id}")
             
-            return activity_name, csv_data
+            return activity_name, csv_data, extended_meta
 
         except Exception as e:
             logger.error(f"[STRAVA] Error processing activity data: {e}")
-            return None, None
+            return None, None, None
 
     def update_activity_description(self, activity_id: str, description: str):
         """Update the description of a Strava activity."""
@@ -108,11 +160,10 @@ class StravaClient:
         except Exception as e:
             logger.error(f"[STRAVA] Error updating description: {e}")
             return False
+
     def get_athlete_stats(self, athlete_id):
         """Lấy tổng km chạy (Tuần/Tháng/Năm/Tổng)"""
-        # Đảm bảo có access_token mới nhất
         token = self.get_access_token() 
-        
         url = f"https://www.strava.com/api/v3/athletes/{athlete_id}/stats"
         headers = {"Authorization": f"Bearer {token}"}
         
@@ -133,7 +184,6 @@ class StravaClient:
     def get_recent_activities(self, limit=10):
         """Lấy danh sách các bài tập gần nhất"""
         token = self.get_access_token()
-        
         url = "https://www.strava.com/api/v3/athlete/activities"
         headers = {"Authorization": f"Bearer {token}"}
         params = {"per_page": limit}
