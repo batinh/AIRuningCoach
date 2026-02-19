@@ -8,3 +8,5 @@ numpy
 pydantic
 jinja2
 python-multipart
+apscheduler
+pytz

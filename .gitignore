@@ -23,4 +23,8 @@ infra/letsencrypt/
 infra/duckdns/
 mysql/
 data/database.sqlite
+*.db
+*.sqlite3
+*.sqlite
+data/coach_memory.db
 full_system_context.txt
