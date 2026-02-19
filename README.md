@@ -1,169 +1,194 @@
-Markdown
 <div align="center">
 
-# 🏃‍♂️ AI Running Coach (Coach Dyno)
-### Autonomous Agentic System v1.1
+# 🏃‍♂️ Personal AI OS (Coach Dyno)
+### Autonomous Agentic System v2.0 (Modular Monolith)
 
 ![Status](https://img.shields.io/badge/Status-Live-success?style=for-the-badge)
+![Architecture](https://img.shields.io/badge/Architecture-Modular%20Monolith-orange?style=for-the-badge)
 ![AI Model](https://img.shields.io/badge/AI-Gemini%202.0%20Flash-blue?style=for-the-badge)
-![Docker](https://img.shields.io/badge/Docker-Monorepo-2496ED?style=for-the-badge)
-![Python](https://img.shields.io/badge/Python-3.9-yellow?style=for-the-badge)
+![Python](https://img.shields.io/badge/Python-3.11-yellow?style=for-the-badge)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge)
 
-*A personalized, proactive AI Agent running on Home Lab (Lenovo T440).*
+*A personalized, context-aware AI Agent operating on a lightweight Home Lab (Lenovo T440).*
 
 </div>
 
 ---
 
-## 📖 1. Overview
+## 📖 1. Project Introduction
 
-**Coach Dyno** không chỉ là một chatbot. Đây là hệ thống **AI Agent** có khả năng tự nhận thức ngữ cảnh (Contextual Awareness), vận hành trên Home Lab cá nhân. Nó được thiết kế để "hiểu" dữ liệu tập luyện sâu sắc hơn và đồng hành cùng Runner đạt mục tiêu **Sub 1:45 Half Marathon (2026)**.
+**Personal AI OS (Coach Dyno)** is not just a standard chatbot. It is a proactive, context-aware AI Agent designed to run 24/7 on a low-resource Home Lab. Currently specializing as a **Running Coach**, its primary mission is to guide the user towards a **Sub 1:45 Half Marathon (March 2026)**.
 
-### ✨ Key Capabilities
-* 🧠 **Contextual Memory:** Nhớ được nội dung hội thoại trước đó (Short-term RAM). Hiểu các câu hỏi nối tiếp (Follow-up questions).
-* 📊 **Deep Analysis:** Tự động phát hiện bài chạy mới từ Strava Webhook, phân tích Splits/HR/Cadence ngay lập tức.
-* 🛡️ **Decoupled Infrastructure:** Hạ tầng mạng (Nginx/SSL) chạy độc lập với trí tuệ nhân tạo (AI), đảm bảo sự ổn định tối đa.
-* 📧 **Professional Reporting:** Gửi email báo cáo chi tiết chuẩn HTML với các chỉ số chuyên sâu.
+**Core Philosophy: "Zero-Heavy Local Processing"**
+To operate smoothly on an 8GB RAM machine, the system is designed to be completely lightweight:
+* **Offloaded Heavy-lifting:** LLM reasoning is completely offloaded to Google Gemini API.
+* **Lean Local Footprint:** Uses `SQLite` instead of heavy database servers. Uses HTTP webhooks and RSS instead of resource-heavy browser automation.
+* **Modular Monolith:** Highly organized codebase allowing easy integration of new Agents (e.g., Finance, News) without spinning up multiple Docker containers.
 
 ---
 
 ## 🏗️ 2. System Architecture
 
-Hệ thống sử dụng kiến trúc **Monorepo** với thiết kế **Decoupled Infrastructure** (Tách biệt hạ tầng).
+The system utilizes a decoupled infrastructure where networking (Nginx/SSL) is isolated from the application logic.
 
 ```mermaid
 graph TD
-    %% Actors
-    User((🏃 Runner)) -->|Upload Run| Strava[Strava Cloud]
-    User -->|Chat| Telegram[Telegram Cloud]
+    %% External Inputs
+    User(("🏃 Runner")) -->|"Telegram Chat"| Telegram["Telegram Webhook"]
+    StravaCloud["Strava Cloud"] -->|"Activity Webhook"| Nginx
 
-    %% Infrastructure Block
-    subgraph "INFRASTRUCTURE (Docker Network: runner-net)"
-        direction TB
-        DuckDNS[DuckDNS Updater]
-        Nginx[Nginx Proxy Manager]
-        SSL[Let's Encrypt]
+    %% Infra
+    subgraph "INFRASTRUCTURE (runner-net)"
+        Nginx["Nginx Proxy Manager"]
+        SSL["Let's Encrypt"]
     end
 
-    %% AI Application Block
-    subgraph "AI AGENT LOGIC"
-        direction TB
-        Agent[AI Coach Container]
-        Memory[(RAM Context Memory)]
+    %% Application
+    subgraph "MODULAR MONOLITH (FastAPI)"
+        Gateway["main.py Gateway"]
+        
+        subgraph "Routers (API Layer)"
+            HookRouter["Webhooks"]
+            AdminRouter["Admin UI"]
+        end
+        
+        subgraph "Services & Core"
+            Cron["APScheduler"]
+            State["Global App State"]
+            DB[("SQLite Memory DB")]
+        end
+        
+        subgraph "Domain Logic (Agents)"
+            Coach["Coach Agent"]
+            StravaAPI["Strava Integration"]
+        end
     end
+
+    %% External LLM
+    Gemini["Google Gemini 2.0 API"]
 
     %% Connections
-    Strava -->|Webhook POST| Nginx
-    Telegram -->|Webhook POST| Nginx
-    DuckDNS -.->|Update IP| CloudDNS
+    Telegram --> Nginx
+    Nginx -->|"Reverse Proxy :8000"| Gateway
+    Gateway --> HookRouter
+    Gateway --> AdminRouter
     
-    Nginx -->|Reverse Proxy| Agent
-    
-    Agent <-->|Read/Write| Memory
-    Agent <-->|Reasoning| Gemini[Google Gemini 2.0 Flash]
-    Agent -->|Fetch Data| StravaAPI[Strava Tools]
-    Agent -->|Send Report| SMTP[Gmail]
+    HookRouter --> Coach
+    Cron -->|"Trigger Harvest/Briefing"| Coach
+    Coach <-->|"Context/History"| DB
+    Coach <-->|"Fetch Raw Data"| StravaAPI
+    Coach <-->|"Prompt Reasoning"| Gemini
+
 ```
-📂 Project Structure
 
-Bash
-AIRunningCoach/
-├── .env                # [SECRET] API Keys, Tokens (GitIgnore)
-├── docker-compose.yml  # Main Orchestrator
-├── main.py             # API Gateway & Webhook Handler
-│
-├── infra/              # [INFRASTRUCTURE] - Independent
-│   ├── nginx/          # Proxy Config & Database
-│   ├── letsencrypt/    # SSL Certificates
-│   └── duckdns/        # DDNS Config
-│
-├── agents/             # [THE BRAIN]
-│   └── coach_agent.py  # Logic AI, Memory, Prompting
-│
-├── tools/              # [THE HANDS]
-│   ├── strava_client.py
-│   └── notify_tools.py # Notification Senders
-│
-└── data/               # [DYNAMIC CONFIG]
-    └── config.json     # System Instruction & Persona
-📝 3. Change Log
-Version	Date	Key Highlights
-v1.1	Feb 2026	Context & Infra Update. Tách biệt hạ tầng Nginx. Thêm trí nhớ hội thoại (Memory). Hỗ trợ WireGuard (Port 4500). Bảo mật Token bằng .env.
-v1.0	Jan 2026	Genesis. Phiên bản đầu tiên. Tích hợp Strava Webhook. Phân tích cơ bản với Gemini 1.5.
-🗺️ 4. Roadmap: The Agentic Evolution
-🐣 Phase 1: Foundation (Completed)
+---
 
-[x] Xây dựng hạ tầng Docker & Nginx Proxy.
+## 📂 3. Project Structure
 
-[x] Kết nối Strava Webhook nhận dữ liệu chạy.
+The project has been refactored from a flat-script structure into a scalable **Modular Monolith**:
 
-[x] Tích hợp Gemini 1.5 Pro phân tích cơ bản.
+```text
+Personal_AI_OS/
+├── app/                        # Main Application Package
+│   ├── main.py                 # Lightweight Entry Point & FastAPI Init
+│   ├── core/                   # ⚙️ SHARED INFRASTRUCTURE
+│   │   ├── config.py           # Centralized Configuration Loader
+│   │   ├── database.py         # SQLite Memory Manager
+│   │   ├── logging_conf.py     # Centralized Logging Buffer
+│   │   ├── notification.py     # Telegram & Email senders
+│   │   └── state.py            # Global App State (Pause/Resume)
+│   ├── services/               # 🔄 BACKGROUND SERVICES
+│   │   └── scheduler.py        # APScheduler (Cron jobs)
+│   ├── routers/                # 🌐 API ENDPOINTS
+│   │   ├── admin.py            # Admin Dashboard UI Controller
+│   │   └── webhooks.py         # Strava & Telegram event listeners
+│   └── agents/                 # 🧠 DOMAIN LOGIC
+│       └── coach/              # Coach Agent Enclave
+│           ├── agent.py        # AI Reasoning & Prompt Engineering
+│           ├── harvest.py      # Automated Data Harvester
+│           ├── strava_client.py# Strava API Wrapper
+│           └── utils.py        # Running metrics math (TRIMP, EF)
+├── data/                       # Local Storage (SQLite, JSON Configs)
+├── infra/                      # Independent Nginx & DuckDNS Configs
+├── templates/                  # HTML Templates for Admin UI
+├── docker-compose.yml          # Container Orchestration
+└── .env                        # [SECRET] Environment Variables
 
-[x] Hệ thống báo cáo qua Email HTML & Telegram.
+```
 
-🧠 Phase 2: Cognition & Memory (Current)
+---
 
-[x] Monorepo Structure: Tách biệt hạ tầng và logic ứng dụng.
+## 💻 4. Technologies
 
-[x] Contextual Memory (RAM): Bot nhớ được hội thoại ngắn hạn.
+* **Backend Framework:** FastAPI (Asynchronous, fast, and lightweight).
+* **AI & LLM:** Google Generative AI (Gemini 2.0 Flash) for cost-effective, high-speed reasoning.
+* **Task Scheduling:** APScheduler (Running within the same FastAPI process to save RAM).
+* **Database:** SQLite (Zero-configuration, serverless database for chat history).
+* **Containerization:** Docker & Docker Compose.
+* **Networking:** Nginx Proxy Manager + Let's Encrypt (Automated SSL) + DuckDNS.
 
-[ ] Reflexion: Agent tự đánh giá lại lời khuyên nếu người dùng phản hồi tiêu cực.
+---
 
-[ ] Error Recovery: Tự động retry khi Strava API lỗi hoặc Gemini quá tải (429).
+## 🚀 5. Deployment Guidelines
 
-🏛️ Phase 3: Long-term Memory & RAG (Q2 2026)
+### Prerequisites
 
-[ ] Database Integration: Chuyển từ RAM sang SQLite/PostgreSQL.
+1. Docker and Docker Compose installed.
+2. A `.env` file created at the root directory containing all API Keys (Gemini, Telegram, Strava, Email, Admin Auth). *See `config.example.json` for hints.*
 
-[ ] RAG (Retrieval-Augmented Generation): "So sánh bài chạy hôm nay với tháng trước".
+### Quick Start
 
-[ ] Knowledge Base: Nạp kiến thức chạy bộ chuẩn (Jack Daniels) vào bộ nhớ.
+To spin up the entire system (Application + Nginx Proxy):
 
-👁️ Phase 4: Perception (Late 2026)
+```bash
+docker-compose up -d --build
 
-[ ] Vision: Phân tích ảnh chụp màn hình Garmin/Coros.
+```
 
-[ ] Voice: Tích hợp Gemini Live chat voice khi chạy.
+### Applying Application Updates (Zero-Downtime Networking)
 
-👨‍💻 5. Development Guidelines
-🚀 Deployment
+If you only modify the Python code inside `app/` and want to update the AI without dropping the Nginx network:
 
-Khởi động toàn bộ (Full Start):
-
-Bash
-sudo docker-compose up -d --build
-Cập nhật AI Logic (Zero Downtime Infra):
-
-Bash
-# Sử dụng alias 'update-ai' hoặc:
+```bash
 docker-compose up -d --no-deps --build ai-coach
-🔒 Secret Management
 
-Never commit .env: File này chứa API Key.
+```
 
-Log Sanitization: Kiểm tra kỹ khi log raw JSON để tránh lộ token.
+### Admin Access
 
-📜 Monitoring
+Access the dashboard to change AI Persona, toggle service state, or view live logs:
 
-Xem log thời gian thực:
+* Local: `http://localhost:8000/admin`
+* Public: `https://<your-domain>/admin`
 
-Bash
-docker logs -f airunningcoach
-✅ 6. Immediate Todo List
-High Priority 🔴
+---
 
-[ ] Backup Script: Script tự động zip folder infra/ upload lên Google Drive.
+## 🗺️ 6. Roadmap: The Agentic Evolution
 
-[ ] Persona Tuning: Cập nhật config.json để Coach Dyno "có hồn" hơn.
+### Phase 1: Foundation (Completed)
 
-[ ] Fix Strava Token: Cơ chế Refresh Token tự động mạnh mẽ hơn.
+* [x] Basic Strava Webhook Integration.
+* [x] Telegram Bot interface.
+* [x] HTML Email reporting.
 
-Medium Priority 🟡
+### Phase 2: Cognition & Restructuring (Current)
 
-[ ] Dashboard UI: Web xem biểu đồ đơn giản (Streamlit).
+* [x] Refactor to Modular Monolith architecture.
+* [x] Contextual Memory (SQLite): Agent remembers short-term conversation history.
+* [x] Automated Scheduler (Morning Briefings & Auto-Harvest).
 
-[ ] Health Check: Endpoint /health cho Uptime Kuma.
+### Phase 3: Advanced Intelligence & Stability (Upcoming)
+
+* [ ] **Race Day Persona:** Fine-tune `config.json` to make the AI aware of the exact weeks left until the Sub 1:45 Race Day.
+* [ ] **Data Security:** Implement an automated Backup Script for the `data/` directory.
+* [ ] **Error Recovery:** Add retry mechanisms for Strava API rate limits and Gemini 429 Overload errors.
+* [ ] **RAG Integration:** Implement `LanceDB` for lightweight vector search to compare current runs with historical performances.
+
+### Phase 4: Expansion (Late 2026)
+
+* [ ] Add **Finance Agent** for personal budget tracking.
+* [ ] Add **News Agent** using `trafilatura` (RSS-based zero-heavy crawling).
 
 <div align="center">
-<sub>Last Updated: Feb 2026 | Project Owner: TinhN</sub>
+<sub>Project Owner: TinhN | Maintained for Personal Home Lab Operations</sub>
 </div>
