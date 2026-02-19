@@ -2,8 +2,8 @@ import os
 import json
 import logging
 import google.generativeai as genai
-from tools.notify_tools import send_telegram_msg
-from tools.memory_db import save_message, load_history_for_gemini, clear_history
+from app.core.notification import send_telegram_msg
+from app.core.database import save_message, load_history_for_gemini, clear_history
 
 # Configure logging
 logger = logging.getLogger(__name__)

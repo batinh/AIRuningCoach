@@ -1,18 +1,15 @@
-# Dùng Python nhẹ
 FROM python:3.11-slim
 
-# Thiết lập thư mục làm việc
 WORKDIR /app
 
-# Copy file thư viện và cài đặt
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy toàn bộ code vào
+# Copy toàn bộ code
 COPY . .
 
-# Mở cổng 8000
-EXPOSE 8000
+# Quan trọng: Set Python Path để nhận diện module 'app'
+ENV PYTHONPATH=/app
 
-# Lệnh chạy App khi khởi động
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Lệnh chạy trỏ vào app.main:app
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
