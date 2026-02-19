@@ -78,6 +78,26 @@
                         <label class="form-label fw-bold">User Profile</label>
                         <textarea class="form-control" name="user_profile" rows="4">{{ config.user_profile }}</textarea>
                     </div>
+                    <h5 class="mt-4 text-primary">🏃‍♂️ Sports Science & Goals</h5>
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold">Max HR (bpm)</label>
+                            <input type="number" class="form-control" name="max_hr" value="{{ config.max_hr | default(185) }}">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold">Resting HR (bpm)</label>
+                            <input type="number" class="form-control" name="rest_hr" value="{{ config.rest_hr | default(55) }}">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold">Target Race Date</label>
+                            <input type="date" class="form-control" name="race_date" value="{{ config.race_date }}">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold">Current Goal</label>
+                            <input type="text" class="form-control" name="current_goal" value="{{ config.current_goal | default('Sub 1:45 HM') }}">
+                        </div>
+                    </div>
+                    <div class="form-text text-muted mb-4">Note: Leave Race Date blank to enter 'Off-season / Maintenance' phase.</div>
                     <div class="mb-3">
                         <label class="form-label fw-bold">Task Description</label>
                         <textarea class="form-control" name="task_description" rows="2">{{ config.task_description }}</textarea>

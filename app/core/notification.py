@@ -16,6 +16,8 @@ def send_telegram_msg(chat_id, text):
         return
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
+    
+    # Payload mặc định sử dụng Markdown
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -24,8 +26,17 @@ def send_telegram_msg(chat_id, text):
     
     try:
         response = requests.post(url, json=payload)
+        
+        # [CƠ CHẾ FALLBACK] Nếu Telegram báo lỗi định dạng (HTTP 400 + parse entities)
+        if response.status_code == 400 and "parse entities" in response.text:
+            logger.warning("[TELEGRAM] Markdown parse failed. Cứu nét bằng văn bản thô (Plain Text)...")
+            # Xóa parse_mode đi và gửi lại
+            payload.pop("parse_mode") 
+            response = requests.post(url, json=payload)
+            
         if response.status_code != 200:
             logger.error(f"[TELEGRAM] Failed to send message: {response.text}")
+            
     except Exception as e:
         logger.error(f"[TELEGRAM] Connection error: {e}")
 

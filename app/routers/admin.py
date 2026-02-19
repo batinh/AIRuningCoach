@@ -41,6 +41,10 @@ async def save_settings(
     task_description: str = Form(...),
     analysis_requirements: str = Form(...),
     output_format: str = Form(...),
+    max_hr: int = Form(185),
+    rest_hr: int = Form(55),
+    race_date: Optional[str] = Form(None),
+    current_goal: str = Form(""),
     email_enabled: Optional[str] = Form(None),
     debug_mode: Optional[str] = Form(None),
     model_name: str = Form("models/gemini-2.0-flash")
@@ -56,6 +60,10 @@ async def save_settings(
     config["task_description"] = task_description
     config["analysis_requirements"] = analysis_requirements
     config["output_format"] = output_format
+    config["max_hr"] = max_hr
+    config["rest_hr"] = rest_hr
+    config["race_date"] = race_date
+    config["current_goal"] = current_goal
     
     # Cập nhật Email
     if "email_config" not in config: config["email_config"] = {}

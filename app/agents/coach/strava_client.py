@@ -83,14 +83,14 @@ class StravaClient:
 
             # Đóng gói dữ liệu bổ sung (Metadata)
             extended_meta = {
+                "start_date_local": act_data.get('start_date_local'),
+                "moving_time": act_data.get('moving_time', 0),
+                "average_heartrate": act_data.get('average_heartrate', 0),
                 "suffer_score": act_data.get('suffer_score'),
-                "calories": act_data.get('calories'),
                 "device_name": act_data.get('device_name'),
                 "splits": splits_summary,
-                "laps": laps_summary,
-                "best_efforts": act_data.get('best_efforts', []) # PRs
+                "best_efforts": act_data.get('best_efforts', [])
             }
-
             # 3. Lấy Streams (Dữ liệu từng giây)
             streams_url = f"{act_url}/streams?keys=time,heartrate,velocity_smooth,cadence,grade_smooth,watts&key_by_type=true"
             streams_res = requests.get(streams_url, headers=headers).json()

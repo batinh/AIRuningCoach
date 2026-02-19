@@ -8,6 +8,9 @@ def calculate_trimp(duration_minutes: float, avg_hr: float, max_hr: int = 185, r
     Calculate Training Impulse (TRIMP) using Bannister's method.
     Returns a dictionary containing TRIMP score and evaluated intensity.
     """
+    if avg_hr == 0 or duration_minutes == 0:
+        return {"trimp": 0, "intensity_level": "No Data"}
+        
     try:
         # Calculate Heart Rate Reserve (HRR)
         hrr = (avg_hr - rest_hr) / (max_hr - rest_hr)
@@ -18,30 +21,46 @@ def calculate_trimp(duration_minutes: float, avg_hr: float, max_hr: int = 185, r
         trimp = duration_minutes * hrr * weight
         trimp_rounded = round(trimp, 2)
         
-        # Evaluate intensity zone based on TRIMP score
+        # Evaluate intensity zone
         intensity = "Easy/Recovery"
         if trimp_rounded > 120:
-            intensity = "High (Overreaching if scheduled for recovery)"
+            intensity = "High (Severe Load)"
         elif trimp_rounded > 70:
             intensity = "Medium (Tempo/Threshold)"
             
-        logger.info(f"[Strava Tool] TRIMP calculated: {trimp_rounded} - {intensity}")
-        
-        return {
-            "trimp": trimp_rounded,
-            "intensity_level": intensity,
-            "avg_hr": avg_hr,
-            "duration": duration_minutes
-        }
+        return {"trimp": trimp_rounded, "intensity_level": intensity}
     except Exception as e:
-        logger.error(f"[Strava Tool] Calculation error: {e}")
-        return {"error": str(e)}
-def calculate_efficiency_factor(avg_speed_mpm, avg_hr):
+        logger.error(f"[UTILS] TRIMP calculation error: {e}")
+        return {"trimp": 0, "intensity_level": "Error"}
+
+def calculate_acwr(acute_load_7d: float, chronic_load_28d: float) -> dict:
     """
-    Tính Efficiency Factor (EF) = Speed (meters/min) / HR
-    EF tăng = Aerobic Fitness tăng.
+    Calculate Acute-to-Chronic Workload Ratio (ACWR).
+    Acute: Last 7 days load (km or TRIMP).
+    Chronic: Last 28 days load (average per week).
     """
-    if avg_hr == 0: return 0
+    if chronic_load_28d == 0:
+        return {"acwr": 0.0, "status": "No Chronic Data"}
+        
+    avg_weekly_chronic = chronic_load_28d / 4
+    if avg_weekly_chronic == 0:
+        return {"acwr": 0.0, "status": "No Chronic Data"}
+        
+    acwr = round(acute_load_7d / avg_weekly_chronic, 2)
+    
+    status = "Sweet Spot (Optimal)"
+    if acwr < 0.8:
+        status = "Under-training (Losing fitness)"
+    elif acwr > 1.5:
+        status = "Danger Zone (High Injury Risk - Need Recovery)"
+    elif acwr > 1.3:
+        status = "Overreaching (Caution needed)"
+        
+    return {"acwr": acwr, "status": status}
+
+def calculate_efficiency_factor(avg_speed_mpm: float, avg_hr: float) -> float:
+    """Efficiency Factor (EF) = Speed (meters/min) / HR"""
+    if avg_hr == 0: return 0.0
     return round(avg_speed_mpm / avg_hr, 2)
 
 def calculate_grade_adjusted_pace(velocity_ms, grade_pct):
