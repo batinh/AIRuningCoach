@@ -4,7 +4,7 @@ from fastapi import FastAPI
 # --- IMPORTS (Modular Structure) ---
 # Folders/Files are snake_case: app.core.database
 from app.core.database import init_db
-from app.routers import webhooks, admin
+from app.routers import webhooks, admin, dashboard
 from app.services.scheduler import start_scheduler, scheduler
 from app.core.logging_conf import setup_logging
 
@@ -28,6 +28,7 @@ app = FastAPI(
 # 'router' is the APIRouter instance inside them
 app.include_router(webhooks.router)
 app.include_router(admin.router)
+app.include_router(dashboard.router) # Đăng ký router mới
 
 # 5. Lifecycle Events
 @app.on_event("startup")

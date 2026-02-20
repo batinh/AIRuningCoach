@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏃‍♂️ Runner Dashboard | Personal AI OS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card { border: none; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); }
+        .stat-value { font-size: 2rem; font-weight: bold; }
+        .stat-label { font-size: 0.9rem; color: #6c757d; text-transform: uppercase; }
+        .badge-acwr { padding: 10px 20px; border-radius: 20px; font-size: 1rem; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-dark bg-dark mb-4 p-3">
+        <div class="container d-flex justify-content-between">
+            <a class="navbar-brand fw-bold" href="#">🏃‍♂️ COACH DYNO DASHBOARD</a>
+            <div class="text-white">
+                <span class="badge bg-primary me-2">Mục tiêu: {{ config.get('current_goal', 'Sub 1:45 HM') }}</span>
+                <span class="text-warning fw-bold">📅 Race Day: {{ config.get('race_date', '2026-03-29') }}</span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container shadow-sm p-4 bg-white rounded-4 mb-5">
+        
+        <div class="row text-center mb-4">
+            <div class="col-md-4">
+                <div class="card p-3 bg-light">
+                    <div class="stat-label">Chỉ số chấn thương (ACWR)</div>
+                    <div class="stat-value {% if acwr.acwr > 1.5 %}text-danger{% elif acwr.acwr < 0.8 %}text-warning{% else %}text-success{% endif %}">
+                        {{ acwr.acwr }}
+                    </div>
+                    <div class="fw-bold">{{ acwr.status }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-3">
+                    <div class="stat-label">Acute Load (7 ngày)</div>
+                    <div class="stat-value text-primary">{{ loads.acute_load_7d }}</div>
+                    <div class="text-muted small">Điểm TRIMP tích lũy</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-3">
+                    <div class="stat-label">Chronic Load (28 ngày)</div>
+                    <div class="stat-value text-info">{{ loads.chronic_load_28d }}</div>
+                    <div class="text-muted small">Nền tảng thể lực</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card p-4">
+                    <h5 class="fw-bold mb-3">📈 Biểu đồ Tự tin & Tải trọng (GCS vs TRIMP)</h5>
+                    <canvas id="performanceChart" style="height: 300px;"></canvas>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-4 h-100">
+                    <h5 class="fw-bold mb-3">🎯 Phân tích GCS</h5>
+                    <p class="text-muted small">Dựa trên 20 bài chạy gần nhất để đánh giá khả năng đạt mục tiêu.</p>
+                    <div class="text-center my-4">
+                        <h1 class="display-1 fw-bold text-success" id="latestGcs">--%</h1>
+                        <span class="badge bg-success">LATEST CONFIDENCE</span>
+                    </div>
+                    <div class="alert alert-info small">
+                        <strong>Coach Note:</strong> GCS dựa trên sự tương quan giữa Pace, Nhịp tim và Kỹ thuật chạy.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card p-4">
+                    <h5 class="fw-bold mb-3">🏃‍♂️ Lịch sử bài tập gần đây</h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Ngày</th>
+                                    <th>Tên bài chạy</th>
+                                    <th>Distance</th>
+                                    <th>Avg HR</th>
+                                    <th>TRIMP</th>
+                                    <th>GCS</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for act in activities[::-1] %}
+                                <tr>
+                                    <td>{{ act.start_date[:10] }}</td>
+                                    <td class="fw-bold">{{ act.name }}</td>
+                                    <td>{{ act.distance_km }} km</td>
+                                    <td>{{ act.avg_hr }} bpm</td>
+                                    <td><span class="badge bg-secondary">{{ act.trimp_score }}</span></td>
+                                    <td>
+                                        {% if act.gcs_score %}
+                                        <span class="fw-bold text-success">{{ act.gcs_score }}%</span>
+                                        {% else %}
+                                        <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const rawData = {{ activities | tojson }};
+        const labels = rawData.map(d => d.start_date.substring(5, 10));
+        const trimpScores = rawData.map(d => d.trimp_score);
+        const gcsScores = rawData.map(d => d.gcs_score || null);
+
+        // Hiển thị GCS mới nhất lên Card
+        const lastGcs = gcsScores.filter(s => s !== null).pop();
+        if(lastGcs) document.getElementById('latestGcs').innerText = lastGcs + "%";
+
+        new Chart("performanceChart", {
+            type: "line",
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: "Độ tự tin (GCS %)",
+                        data: gcsScores,
+                        borderColor: "#198754",
+                        backgroundColor: "rgba(25, 135, 84, 0.1)",
+                        yAxisID: 'y1',
+                        fill: true,
+                        tension: 0.4
+                    },
+                    {
+                        label: "Tải trọng (TRIMP)",
+                        data: trimpScores,
+                        borderColor: "#0d6efd",
+                        borderDash: [5, 5],
+                        yAxisID: 'y',
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { type: 'linear', position: 'left', title: { display: true, text: 'TRIMP Score' } },
+                    y1: { type: 'linear', position: 'right', min: 0, max: 100, title: { display: true, text: 'Confidence %' } }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
