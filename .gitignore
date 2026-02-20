@@ -25,10 +25,13 @@ mysql/
 data/database.sqlite
 *.db
 *.sqlite3
-*.sqlite
 data/coach_memory.db
+
 # Local Database
 data/chroma_db/
 data/*.json
 data/*.sqlite
+data/chroma_cache/
+backups/
+
 full_system_context.txt
