@@ -7,7 +7,7 @@ import time
 import re
 from datetime import datetime
 
-# [NEW] Import thư viện SDK thế hệ mới của Google
+# Import thư viện SDK thế hệ mới của Google
 from google import genai
 from google.genai import types
 
@@ -21,26 +21,74 @@ from app.services.rag_memory import rag_db
 
 # Configure logging
 logger = logging.getLogger("AI_COACH")
-
-# [NEW] Khởi tạo Client kiểu mới
 client = genai.Client()
 
+# ==========================================
+# 🧰 BỘ CÔNG CỤ (TOOLS) CHO AI AGENT
+# ==========================================
+# Ghi chú: Docstring (""") bên dưới cực kỳ quan trọng. 
+# Gemini sẽ đọc nó để hiểu khi nào cần lấy công cụ nào ra dùng.
+
+def check_training_status(user_id: str) -> str:
+    """
+    Kiểm tra chỉ số chấn thương (ACWR) và tải trọng tập luyện (TRIMP) hiện tại của vận động viên.
+    Hãy gọi công cụ này khi user hỏi về tình trạng thể lực, mệt mỏi, mỏi cơ, hoặc cần tư vấn xem có nên chạy tiếp hay nghỉ ngơi.
+    """
+    logger.info(f"[TOOL-USE] 🤖 AI tự động gọi Tool: check_training_status cho User {user_id}")
+    loads = get_training_loads(user_id)
+    acwr_data = calculate_acwr(loads.get("acute_load_7d", 0), loads.get("chronic_load_28d", 0))
+    return f"ACWR: {acwr_data['acwr']} ({acwr_data['status']}) | Acute Load 7d: {loads.get('acute_load_7d')} | Chronic Load 28d: {loads.get('chronic_load_28d')}"
+
+def get_recent_workouts(user_id: str) -> str:
+    """
+    Lấy danh sách 5 bài tập chạy bộ gần nhất của vận động viên trên Strava.
+    Hãy gọi công cụ này để biết trong những ngày qua user đã chạy quãng đường bao nhiêu, nhịp tim thế nào, pace ra sao.
+    """
+    logger.info(f"[TOOL-USE] 🤖 AI tự động gọi Tool: get_recent_workouts cho User {user_id}")
+    return get_recent_runs_log(user_id, limit=5)
+
+def search_long_term_memory(query: str) -> str:
+    """
+    Tìm kiếm trí nhớ dài hạn (ChromaDB) để lấy bối cảnh về các bài chạy cũ, lời khuyên quá khứ, hoặc chấn thương đã từng xảy ra.
+    Hãy gọi công cụ này khi user nhắc đến chuyện tuần trước, tháng trước, hoặc cần so sánh hiện tại với quá khứ.
+    """
+    logger.info(f"[TOOL-USE] 🤖 AI tự động gọi Tool: search_long_term_memory với từ khóa '{query}'")
+    try:
+        results = rag_db.recall(query=query, domain="coach", n_results=3)
+        if not results or not results.get('documents') or not results['documents'][0]:
+            return "Không tìm thấy ký ức nào liên quan trong não bộ."
+        docs = results['documents'][0]
+        return "\n".join([f"- Ký ức: {doc}" for doc in docs])
+    except Exception as e:
+        return f"Lỗi truy xuất ký ức: {e}"
+
+def get_total_run_stats(user_id: str) -> str:
+    """
+    Lấy thống kê tổng quãng đường chạy (km) của vận động viên (trong 4 tuần qua, năm nay, và toàn thời gian).
+    Hãy gọi công cụ này khi user hỏi về tổng số km đã chạy.
+    """
+    logger.info(f"[TOOL-USE] 🤖 AI tự động gọi Tool: get_total_run_stats cho User {user_id}")
+    try:
+        with open("data/athlete_stats.json", "r") as f:
+            stats = json.load(f)
+        return f"Volume 4 tuần qua: {stats.get('recent_run_totals', 0):.1f} km | Năm nay (YTD): {stats.get('ytd_run_totals', 0):.1f} km"
+    except Exception as e:
+        return "Chưa có dữ liệu thống kê tổng km (Auto-Harvest chưa thu thập)."
+# (Giữ lại hàm này cho luồng phân tích CSV tự động)
 def get_rag_context(query: str, n_results: int = 2) -> str:
-    """Truy xuất các ký ức dài hạn có liên quan từ ChromaDB."""
     try:
         results = rag_db.recall(query=query, domain="coach", n_results=n_results)
         if not results or not results.get('documents') or not results['documents'][0]:
             return "No relevant long-term memories found."
-        
         docs = results['documents'][0]
-        memory_str = "\n".join([f"- Ký ức: {doc}" for doc in docs])
-        return memory_str
+        return "\n".join([f"- Ký ức: {doc}" for doc in docs])
     except Exception as e:
-        logger.error(f"[RAG] Recall Error: {e}")
         return "Memory retrieval failed."
 
+# ==========================================
+# LUỒNG 1: PHÂN TÍCH BÀI CHẠY TỰ ĐỘNG (GIỮ NGUYÊN)
+# ==========================================
 def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str, meta_data: dict, config: dict):
-    # Đảm bảo activity_id luôn là string ngay từ đầu
     activity_id = str(activity_id) 
     logger.info(f"[COACH AGENT] Analyzing run: {activity_name} (ID: {activity_id})")
 
@@ -48,7 +96,6 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
     now = datetime.now(tz)
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     
-    # 1. DYNAMIC GOAL & PHASE MANAGEMENT
     race_date_str = config.get("race_date", "")
     current_goal = config.get("current_goal", "Duy trì thể lực (Maintenance)")
     
@@ -57,7 +104,6 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
             race_date = datetime.strptime(race_date_str, "%Y-%m-%d").replace(tzinfo=tz)
             days_to_race = (race_date - now).days
             weeks_to_race = max(0, days_to_race // 7)
-            
             if weeks_to_race <= 2: phase = "Tapering (Giảm tải, giữ điểm rơi)"
             elif weeks_to_race <= 6: phase = "Peak Training (Tích lũy tối đa)"
             else: phase = "Base/Build (Xây dựng nền tảng)"
@@ -69,7 +115,6 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
         phase = "Off-season / Base Building"
         countdown_text = f"No race scheduled. Current Focus: {current_goal}."
 
-    # 2. SCIENTIFIC LOAD TRACKING
     max_hr = int(config.get("max_hr", 185))
     rest_hr = int(config.get("rest_hr", 55))
     
@@ -77,11 +122,9 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
     acute_load_7d = loads.get("acute_load_7d", 0)
     chronic_load_28d = loads.get("chronic_load_28d", 0)
     acwr_data = calculate_acwr(acute_load_7d, chronic_load_28d)
-    
     recent_log = get_recent_runs_log(str(chat_id), limit=5)
     long_term_memory = get_rag_context(query=f"Phân tích bài chạy {activity_name}", n_results=2)
 
-    # 3. BUILD PROMPT CONTEXT
     system_instruction = config.get("system_instruction", "You are an elite AI Running Coach.")
     user_profile = config.get("user_profile", "")
     
@@ -105,7 +148,6 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
     """
 
     full_instruction = f"{system_instruction}\n\n[USER PHYSIOLOGY]\n{user_profile}\nMax HR: {max_hr} | Rest HR: {rest_hr}\n\n{science_context}"
-    
     task_description = config.get("task_description", "Analyze this run.") 
     output_format = config.get("output_format", "Output in Plain Text.")
     current_model_name = config.get("model_name", "models/gemini-2.0-flash")
@@ -139,14 +181,10 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
     {csv_data}
     """
 
-    # ==========================================
-    # [RESTORED] AI PROMPT OBSERVABILITY
-    # ==========================================
     if os.getenv("LOG_AI_PROMPTS", "False").lower() == "true":
         debug_prompt = prompt.replace(csv_data, f"<CSV_DATA_OMITTED_FOR_LOGS> ({len(csv_data)} bytes)")
         logger.info(f"\n{'='*20} [AI PROMPT: RUN ANALYSIS] {'='*20}\n[SYSTEM INSTRUCTION & RAG CONTEXT]:\n{full_instruction}\n\n[USER PROMPT]:\n{debug_prompt}\n{'='*65}\n")
 
-    # [NEW] SMART RETRY & GCS EXTRACTION
     max_retries = 3
     analysis_text = None
     
@@ -155,7 +193,6 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
             response = chat_session.send_message(prompt) 
             analysis_text = response.text
             
-            # REGEX bắt GCS mới: hỗ trợ 🎯 và format GCS (...): [X]%
             gcs_pattern = r"(?:🎯|GOAL CONFIDENCE SCORE|GCS).*?[:\s](\d{1,3})%"
             gcs_match = re.search(gcs_pattern, analysis_text, re.IGNORECASE | re.UNICODE)
             
@@ -163,86 +200,61 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
                 gcs_score = int(gcs_match.group(1))
                 gcs_score = max(0, min(100, gcs_score))
                 update_run_gcs_score(activity_id, gcs_score)
-                logger.info(f"[GCS] Captured: {gcs_score}% for Activity {activity_id}")
             break
         except Exception as api_err:
             if "429" in str(api_err):
-                logger.warning(f"⚠️ [QUOTA] Limit reached. Sleeping 60s...")
                 time.sleep(60)
             else:
-                logger.error(f"API Error: {api_err}")
                 break
 
     if not analysis_text: return None
 
     try:
         if chat_id:
-            # Lưu tin nhắn và nạp vào ChromaDB với ID ép kiểu String
             save_message(str(chat_id), "model", f"[ANALYSIS] {activity_name}: {analysis_text}")
-            
             memory_content = f"Sự kiện: VĐV chạy bài '{activity_name}' vào ngày {now.strftime('%Y-%m-%d')}.\nPhân tích:\n{analysis_text}"
-            
-            # QUAN TRỌNG: Ép kiểu str(activity_id) để tránh lỗi ChromaDB ID
             rag_db.memorize(
                 doc_id=str(activity_id), 
                 content=memory_content, 
                 domain="coach", 
                 extra_meta={"user_id": str(chat_id), "type": "run_analysis"}
             )
-            logger.info(f"[RAG] Saved memory for activity: {activity_id}")
         return analysis_text
     except Exception as e:
         logger.error(f"Post-Analysis Save Error: {e}")
         return None
 
 # ==========================================
-# [RESTORED] TELEGRAM CHAT LOGIC
+# LUỒNG 2: AI AGENTIC CHAT (ĐÃ NÂNG CẤP TOOL-USE)
 # ==========================================
 def handle_telegram_chat(chat_id: str, text: str, config: dict):
     chat_id = str(chat_id)
     if text.strip().lower() in ["/clear", "/reset", "xóa nhớ"]:
         clear_history(chat_id)
-        send_telegram_msg(chat_id, "🧹 Đã xóa bộ nhớ ngữ cảnh ngắn hạn. Chúng ta bắt đầu lại nhé!")
+        send_telegram_msg(chat_id, "🧹 Não bộ đã được làm sạch. Sẵn sàng nhận lệnh mới!")
         return
 
-    # 1. NHẬN THỨC THỜI GIAN HIỆN TẠI & MỤC TIÊU
     tz = pytz.timezone('Asia/Ho_Chi_Minh')
     now = datetime.now(tz)
     now_str = now.strftime('%A, %Y-%m-%d %H:%M:%S')
 
     race_date_str = config.get("race_date", "")
-    current_goal = config.get("current_goal", "Duy trì thể lực (Maintenance)")
+    current_goal = config.get("current_goal", "Duy trì thể lực")
     
     if race_date_str:
         try:
             race_date = datetime.strptime(race_date_str, "%Y-%m-%d").replace(tzinfo=tz)
             days_to_race = (race_date - now).days
             weeks_to_race = max(0, days_to_race // 7)
-            
-            if weeks_to_race <= 2: phase = "Tapering (Giảm tải, giữ điểm rơi)"
-            elif weeks_to_race <= 6: phase = "Peak Training (Tích lũy tối đa)"
-            else: phase = "Base/Build (Xây dựng nền tảng)"
-            countdown_text = f"{weeks_to_race} weeks ({days_to_race} days) remaining to Race Day."
+            phase = "Tapering" if weeks_to_race <= 2 else "Peak Training" if weeks_to_race <= 6 else "Base/Build"
+            countdown_text = f"{weeks_to_race} weeks ({days_to_race} days) remaining."
         except ValueError:
-            phase = "Off-season / Maintenance"
-            countdown_text = "Invalid race date format."
+            phase, countdown_text = "Off-season", "Invalid date."
     else:
-        phase = "Off-season / Base Building"
-        countdown_text = f"No race scheduled. Current Focus: {current_goal}."
+        phase, countdown_text = "Off-season", f"Focus: {current_goal}"
 
-    # 2. KÉO LỊCH SỬ TỪ SQLITE
-    recent_log = get_recent_runs_log(chat_id, limit=5)
-    loads = get_training_loads(chat_id)
-    acute_load_7d = loads.get("acute_load_7d", 0)
-    chronic_load_28d = loads.get("chronic_load_28d", 0)
-    acwr_data = calculate_acwr(acute_load_7d, chronic_load_28d)
-
-    dynamic_stats = f"\n[STATS TỔNG QUAN]: ACWR: {acwr_data['acwr']} ({acwr_data['status']}) | Acute Load: {acute_load_7d} | Chronic Load: {chronic_load_28d}"
-
-    # 3. RAG RECALL: Truy xuất ký ức dựa trên câu hỏi của người dùng
-    long_term_memory = get_rag_context(query=text, n_results=3)
-
-    # 4. ĐÓNG GÓI NHÂN CÁCH VÀ NGỮ CẢNH CHUẨN
+    # ĐÓNG GÓI NHÂN CÁCH MỎNG (THIN PERSONA)
+    # Loại bỏ hoàn toàn việc bắt Python truy xuất DB và nhồi vào đây.
     current_model_name = config.get("model_name", "models/gemini-2.0-flash")
     system_instruction = config.get("system_instruction", "You are Coach Dyno.")
     user_profile = config.get("user_profile", "")
@@ -250,67 +262,64 @@ def handle_telegram_chat(chat_id: str, text: str, config: dict):
     full_persona = f"""
     {system_instruction}
     
-    [TEMPORAL & PERIODIZATION CONTEXT]
-    - System Current Time: {now_str}
+    [CONTEXT]
+    - System Time: {now_str}
     - Target: {countdown_text}
     - Current Phase: {phase}
-    
-    [RECENT WORKOUTS LOG (LỊCH SỬ CHẠY GẦN NHẤT)]
-    {recent_log}
-    
-    {dynamic_stats}
-    
-    [LONG-TERM MEMORY (TRÍ NHỚ DÀI HẠN TỪ CHROMADB)]
-    Dưới đây là các ký ức hoặc lời khuyên trong quá khứ có liên quan đến câu hỏi hiện tại:
-    {long_term_memory}
+    - User ID of the runner: {chat_id}
     
     [USER PROFILE]
     {user_profile}
     
-    [INSTRUCTION]
-    - You are chatting directly with the user via Telegram.
-    - Always consider the 'System Current Time', 'Recent Workouts Log', and 'Long-term Memory' to answer contextually.
-    - Keep responses concise, helpful, and friendly.
+    [CRITICAL INSTRUCTION FOR TOOL USE]
+    - You are chatting with the user on Telegram.
+    - USE TOOLS to fetch training status, recent workouts, or memory IF required.
+    - If you use a tool, always pass the 'user_id' exactly as '{chat_id}'.
+    - If you lack the tools to answer a specific part of the user's question, clearly explain that to the user. DO NOT return an empty response.
     """
 
     try:
-        raw_history = load_history_for_gemini(chat_id, limit=50)
+        raw_history = load_history_for_gemini(chat_id, limit=30)
         formatted_history = [{"role": msg["role"], "parts": [{"text": msg["parts"][0]}]} for msg in raw_history]
         
-        # ==========================================
-        # [RESTORED] AI PROMPT OBSERVABILITY
-        # ==========================================
-        if os.getenv("LOG_AI_PROMPTS", "False").lower() == "true":
-            logger.info(f"\n{'='*20} [AI PROMPT: TELEGRAM CHAT] {'='*20}\n[SYSTEM INSTRUCTION & RAG CONTEXT]:\n{full_persona}\n\n[USER MESSAGE]:\n{text}\n{'='*66}\n")        
+        # CẤP 4 VŨ KHÍ (Thêm get_total_run_stats)
+        ai_tools = [check_training_status, get_recent_workouts, search_long_term_memory, get_total_run_stats]
 
         chat_session = client.chats.create(
             model=current_model_name,
             history=formatted_history,
             config=types.GenerateContentConfig(
                 system_instruction=full_persona,
-                temperature=0.7
+                temperature=0.7,
+                tools=ai_tools 
             )
         )
         
+        # Nhờ tính năng AFC (Automatic Function Calling), lệnh send_message này
+        # sẽ tự động gọi các hàm Python bên trên nếu AI thấy cần thiết, 
+        # sau đó AI tự tổng hợp kết quả và trả về text cuối cùng.
         response = chat_session.send_message(text)
-        reply_text = response.text
+        # [FIX BUG] Bẫy lỗi an toàn cho NoneType
+        if response.text:
+            reply_text = response.text
+        else:
+            logger.error(f"[TELEGRAM] AI trả về kết quả Rỗng. Nguyên nhân có thể do kẹt Tool. Candidates: {response.candidates}")
+            reply_text = "⚠️ Coach Dyno đang kiểm tra số liệu nhưng gặp trục trặc khi tổng hợp (Thiếu công cụ đo lường). Anh thử hỏi tách từng ý ra nhé!"
 
         save_message(chat_id, "user", text)
         save_message(chat_id, "model", reply_text)
         send_telegram_msg(chat_id, reply_text)
         
-        # 5. RAG MEMORIZE: Ghi nhớ đoạn hội thoại này
-        if len(reply_text) > 100:
+        # Bây giờ lệnh len() sẽ không bao giờ bị crash nữa
+        if len(reply_text) > 100 and "⚠️" not in reply_text:
             doc_id = f"chat_{uuid.uuid4().hex[:8]}"
-            memory_content = f"Vào ngày {now_str}, User hỏi: '{text}'.\nCoach Dyno tư vấn: '{reply_text}'"
             rag_db.memorize(
                 doc_id=doc_id, 
-                content=memory_content, 
+                content=f"Vào {now_str}, User: '{text}'. Coach: '{reply_text}'", 
                 domain="coach", 
                 extra_meta={"user_id": chat_id, "type": "chat_advice"}
             )
-            logger.debug(f"[RAG] Saved chat memory: {doc_id}")
             
     except Exception as e:
         logger.error(f"[TELEGRAM] Chat Error: {e}")
-        send_telegram_msg(chat_id, "⚠️ Coach Dyno đang bị 'chuột rút' hoặc quá tải. Thử /clear xem sao!")
+        send_telegram_msg(chat_id, "⚠️ Coach Dyno đang bị 'chuột rút' (Lỗi Agent). Thử /clear xem sao!")

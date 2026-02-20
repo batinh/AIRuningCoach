@@ -17,7 +17,7 @@ if cache_dir:
     os.environ["CHROMA_CACHE_DIR"] = cache_dir
     os.environ["HF_HOME"] = cache_dir
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
-
+    os.environ["XDG_CACHE_HOME"] = cache_dir # Thêm dòng này để trị triệt để ONNX
 # 3. SAU KHI ĐÃ GÀI BIẾN MÔI TRƯỜNG XONG, MỚI IMPORT CHROMA
 import chromadb
 from chromadb.utils import embedding_functions

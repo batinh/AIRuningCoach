@@ -26,6 +26,7 @@ services:
       - .env  # File .env giờ nằm cùng cấp
     volumes:
       - .:/app # Mount thư mục hiện tại vào container
+      - ./data/chroma_cache:/root/.cache/chroma
 
   # --- 3. DUCKDNS ---
   duckdns:
