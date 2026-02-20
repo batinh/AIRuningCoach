@@ -130,6 +130,9 @@ class StravaClient:
             # Round for cleaner CSV token usage
             df = df.round({'Velocity_m_s': 2, 'Stride_m': 2, 'Grade_pct': 1})
 
+            # [NEW] DOWNSAMPLING: Lấy mẫu 5 giây/lần để giảm 80% Token rác.
+            # Cực kỳ quan trọng để bảo vệ Quota cho các bài chạy dài (Long Run).
+            df = df.iloc[::5, :]
             # Convert to CSV string for Gemini
             csv_data = df.to_csv(index=False)
             logger.info(f"[STRAVA] Successfully processed CSV data with Dynamics for {activity_id}")
