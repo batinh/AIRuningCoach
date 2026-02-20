@@ -7,7 +7,15 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background-color: #f8f9fa; }
-        .log-box { background: #1e1e1e; color: #00ff00; height: 300px; overflow-y: scroll; font-family: monospace; padding: 10px; border-radius: 5px; }
+        .log-box { 
+            background: #1e1e1e; 
+            color: #00ff00; 
+            height: 300px; 
+            overflow-y: scroll; 
+            font-family: monospace; 
+            padding: 10px; 
+            border-radius: 5px; 
+        }
     </style>
 </head>
 <body>
@@ -26,13 +34,14 @@
                     <div class="card-body">
                         <form action="/admin/toggle" method="post" class="d-inline">
                             {% if service_active %}
-                            <button type="submit" class="btn btn-danger w-100">⏸ PAUSE SERVICE (Stop Processing)</button>
+                                <button type="submit" class="btn btn-danger w-100">⏸ PAUSE SERVICE (Stop Processing)</button>
                             {% else %}
-                            <button type="submit" class="btn btn-success w-100">▶️ RESUME SERVICE</button>
+                                <button type="submit" class="btn btn-success w-100">▶️ RESUME SERVICE</button>
                             {% endif %}
                         </form>
                         <hr>
                         <button type="button" onclick="testEmail()" class="btn btn-outline-primary w-100">📧 Test Email Notification</button>
+                        
                         <script>
                         async function testEmail() {
                             const logBox = document.getElementById("logBox");
@@ -56,6 +65,7 @@
                     </div>
                 </div>
             </div>
+            
             <div class="col-md-6">
                  <div class="card">
                     <div class="card-header bg-dark text-white">📜 Live Logs (Last 50 lines)</div>
@@ -66,66 +76,98 @@
             </div>
         </div>
 
-        <div class="card">
+        <div class="card mb-5">
             <div class="card-header bg-primary text-white">📝 Configuration Editor</div>
             <div class="card-body">
                 <form action="/admin/save" method="post">
+                    
                     <div class="mb-3">
                         <label class="form-label fw-bold">System Instruction (AI Role)</label>
-                        <textarea class="form-control" name="system_instruction" rows="2">{{ config.system_instruction }}</textarea>
+                        <textarea class="form-control" name="system_instruction" rows="2">{{ config.get('system_instruction', '') }}</textarea>
                     </div>
+                    
                     <div class="mb-3">
                         <label class="form-label fw-bold">User Profile</label>
-                        <textarea class="form-control" name="user_profile" rows="4">{{ config.user_profile }}</textarea>
+                        <textarea class="form-control" name="user_profile" rows="4">{{ config.get('user_profile', '') }}</textarea>
                     </div>
+                    
                     <h5 class="mt-4 text-primary">🏃‍♂️ Sports Science & Goals</h5>
                     <div class="row">
                         <div class="col-md-3 mb-3">
                             <label class="form-label fw-bold">Max HR (bpm)</label>
-                            <input type="number" class="form-control" name="max_hr" value="{{ config.max_hr | default(185) }}">
+                            <input type="number" class="form-control" name="max_hr" value="{{ config.get('max_hr', 185) }}">
                         </div>
                         <div class="col-md-3 mb-3">
                             <label class="form-label fw-bold">Resting HR (bpm)</label>
-                            <input type="number" class="form-control" name="rest_hr" value="{{ config.rest_hr | default(55) }}">
+                            <input type="number" class="form-control" name="rest_hr" value="{{ config.get('rest_hr', 55) }}">
                         </div>
                         <div class="col-md-3 mb-3">
                             <label class="form-label fw-bold">Target Race Date</label>
-                            <input type="date" class="form-control" name="race_date" value="{{ config.race_date }}">
+                            <input type="date" class="form-control" name="race_date" value="{{ config.get('race_date', '') }}">
                         </div>
                         <div class="col-md-3 mb-3">
                             <label class="form-label fw-bold">Current Goal</label>
-                            <input type="text" class="form-control" name="current_goal" value="{{ config.current_goal | default('Sub 1:45 HM') }}">
+                            <input type="text" class="form-control" name="current_goal" value="{{ config.get('current_goal', 'Sub 1:45 HM') }}">
                         </div>
                     </div>
                     <div class="form-text text-muted mb-4">Note: Leave Race Date blank to enter 'Off-season / Maintenance' phase.</div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Task Description</label>
-                        <textarea class="form-control" name="task_description" rows="2">{{ config.task_description }}</textarea>
+
+                    <h5 class="mt-4 text-primary">⏰ Task Scheduler (Lịch chạy tự động)</h5>
+                    <div class="row bg-light p-3 border rounded mb-3 ms-1 me-1">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold text-success">☀️ Morning Briefing Time</label>
+                            <input type="time" class="form-control" name="briefing_time" value="{{ config.get('scheduler', {}).get('briefing_time', '06:00') }}">
+                            <div class="form-text">Giờ gửi báo cáo qua Telegram.</div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold text-danger">🛡️ Backup DB Time</label>
+                            <input type="time" class="form-control" name="backup_time" value="{{ config.get('scheduler', {}).get('backup_time', '02:00') }}">
+                            <div class="form-text">Giờ nén file backup hàng ngày.</div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold text-info">🔄 Auto Sync Hours</label>
+                            <input type="text" class="form-control" name="harvest_hours" value="{{ config.get('scheduler', {}).get('harvest_hours', '0,6,12,18') }}">
+                            <div class="form-text">Các khung giờ quét Strava.</div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold text-info">🔄 Auto Sync Minute</label>
+                            <input type="number" class="form-control" name="harvest_minute" value="{{ config.get('scheduler', {}).get('harvest_minute', '15') }}" min="0" max="59">
+                            <div class="form-text">Phút thực hiện quét.</div>
+                        </div>
                     </div>
+
+                    <div class="mb-3 mt-4">
+                        <label class="form-label fw-bold">Task Description</label>
+                        <textarea class="form-control" name="task_description" rows="2">{{ config.get('task_description', '') }}</textarea>
+                    </div>
+                    
                     <div class="mb-3">
                         <label class="form-label fw-bold">Analysis Requirements</label>
-                        <textarea class="form-control" name="analysis_requirements" rows="4">{{ config.analysis_requirements }}</textarea>
+                        <textarea class="form-control" name="analysis_requirements" rows="4">{{ config.get('analysis_requirements', '') }}</textarea>
                     </div>
+                    
                     <div class="mb-3">
                         <label class="form-label fw-bold">Output Format</label>
-                        <textarea class="form-control" name="output_format" rows="4">{{ config.output_format }}</textarea>
+                        <textarea class="form-control" name="output_format" rows="4">{{ config.get('output_format', '') }}</textarea>
                     </div>
                     
                     <h5 class="mt-4 text-primary">📧 Email Settings</h5>
                     <div class="row">
                          <div class="col-md-12 mb-3 form-check ms-3">
-                            <input class="form-check-input" type="checkbox" name="email_enabled" id="emailEnabled" {% if config.email_config.enabled %}checked{% endif %}>
+                            <input class="form-check-input" type="checkbox" name="email_enabled" id="emailEnabled" {% if config.get('email_config', {}).get('enabled') %}checked{% endif %}>
                             <label class="form-check-label" for="emailEnabled">Enable Email Notification</label>
                         </div>
                     </div>
+                    
                     <div class="row mb-3">
                         <div class="col-md-12">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" name="debug_mode" id="debugMode" {% if config.debug_mode %}checked{% endif %}>
+                            <div class="form-check form-switch ms-1">
+                                <input class="form-check-input" type="checkbox" name="debug_mode" id="debugMode" {% if config.get('debug_mode') %}checked{% endif %}>
                                 <label class="form-check-label fw-bold text-danger" for="debugMode">🐞 Enable Deep Debug Logging (Show Prompts & Raw Data)</label>
                             </div>
                         </div>
                     </div>
+                    
                     <div class="mb-4 p-3 border rounded bg-light">
                         <label class="form-label fw-bold text-primary">🧠 AI Brain Model (Live Switch)</label>
                         <select class="form-select" name="model_name">
@@ -138,21 +180,19 @@
                             <option value="models/gemini-2.0-flash" {% if config.get('model_name') == 'models/gemini-2.0-flash' %}selected{% endif %}>
                                 Gemini 2.0 Flash (Recommended - Ổn định & Nhanh)
                             </option>
-                            
                             <option value="models/gemini-1.5-flash" {% if config.get('model_name') == 'models/gemini-1.5-flash' %}selected{% endif %}>
                                 Gemini 1.5 Flash (Rất ổn định - Quota cao)
                             </option>
-                    
                             <option value="models/gemini-2.0-flash-lite-preview-02-05" {% if config.get('model_name') == 'models/gemini-2.0-flash-lite-preview-02-05' %}selected{% endif %}>
                                 Gemini 2.0 Flash Lite (Bản nhẹ - Siêu tốc)
                             </option>
-                            
                             <option value="models/gemini-2.0-pro-exp-02-05" {% if config.get('model_name') == 'models/gemini-2.0-pro-exp-02-05' %}selected{% endif %}>
                                 Gemini 2.0 Pro Experimental (Rất thông minh - Hay bị giới hạn)
                             </option>
                         </select>
                         <div class="form-text text-muted">Thay đổi có hiệu lực ngay lập tức cho tin nhắn tiếp theo.</div>
                     </div>
+                    
                     <button type="submit" class="btn btn-primary btn-lg w-100 mt-3">💾 SAVE CONFIGURATION</button>
                 </form>
             </div>
@@ -160,7 +200,7 @@
     </div>
     
     <script>
-        // Auto scroll to bottom of logs
+        // Auto scroll to bottom of logs on load
         var logBox = document.getElementById("logBox");
         logBox.scrollTop = logBox.scrollHeight;
     </script>
