@@ -139,6 +139,13 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
     {csv_data}
     """
 
+    # ==========================================
+    # [RESTORED] AI PROMPT OBSERVABILITY
+    # ==========================================
+    if os.getenv("LOG_AI_PROMPTS", "False").lower() == "true":
+        debug_prompt = prompt.replace(csv_data, f"<CSV_DATA_OMITTED_FOR_LOGS> ({len(csv_data)} bytes)")
+        logger.info(f"\n{'='*20} [AI PROMPT: RUN ANALYSIS] {'='*20}\n[SYSTEM INSTRUCTION & RAG CONTEXT]:\n{full_instruction}\n\n[USER PROMPT]:\n{debug_prompt}\n{'='*65}\n")
+
     # [NEW] SMART RETRY & GCS EXTRACTION
     max_retries = 3
     analysis_text = None
@@ -188,7 +195,122 @@ def analyze_run_with_gemini(activity_id: str, activity_name: str, csv_data: str,
         logger.error(f"Post-Analysis Save Error: {e}")
         return None
 
-# handle_telegram_chat giữ nguyên phần logic cũ của bạn
+# ==========================================
+# [RESTORED] TELEGRAM CHAT LOGIC
+# ==========================================
 def handle_telegram_chat(chat_id: str, text: str, config: dict):
-    # ... logic handle_telegram_chat cũ ...
-    pass
+    chat_id = str(chat_id)
+    if text.strip().lower() in ["/clear", "/reset", "xóa nhớ"]:
+        clear_history(chat_id)
+        send_telegram_msg(chat_id, "🧹 Đã xóa bộ nhớ ngữ cảnh ngắn hạn. Chúng ta bắt đầu lại nhé!")
+        return
+
+    # 1. NHẬN THỨC THỜI GIAN HIỆN TẠI & MỤC TIÊU
+    tz = pytz.timezone('Asia/Ho_Chi_Minh')
+    now = datetime.now(tz)
+    now_str = now.strftime('%A, %Y-%m-%d %H:%M:%S')
+
+    race_date_str = config.get("race_date", "")
+    current_goal = config.get("current_goal", "Duy trì thể lực (Maintenance)")
+    
+    if race_date_str:
+        try:
+            race_date = datetime.strptime(race_date_str, "%Y-%m-%d").replace(tzinfo=tz)
+            days_to_race = (race_date - now).days
+            weeks_to_race = max(0, days_to_race // 7)
+            
+            if weeks_to_race <= 2: phase = "Tapering (Giảm tải, giữ điểm rơi)"
+            elif weeks_to_race <= 6: phase = "Peak Training (Tích lũy tối đa)"
+            else: phase = "Base/Build (Xây dựng nền tảng)"
+            countdown_text = f"{weeks_to_race} weeks ({days_to_race} days) remaining to Race Day."
+        except ValueError:
+            phase = "Off-season / Maintenance"
+            countdown_text = "Invalid race date format."
+    else:
+        phase = "Off-season / Base Building"
+        countdown_text = f"No race scheduled. Current Focus: {current_goal}."
+
+    # 2. KÉO LỊCH SỬ TỪ SQLITE
+    recent_log = get_recent_runs_log(chat_id, limit=5)
+    loads = get_training_loads(chat_id)
+    acute_load_7d = loads.get("acute_load_7d", 0)
+    chronic_load_28d = loads.get("chronic_load_28d", 0)
+    acwr_data = calculate_acwr(acute_load_7d, chronic_load_28d)
+
+    dynamic_stats = f"\n[STATS TỔNG QUAN]: ACWR: {acwr_data['acwr']} ({acwr_data['status']}) | Acute Load: {acute_load_7d} | Chronic Load: {chronic_load_28d}"
+
+    # 3. RAG RECALL: Truy xuất ký ức dựa trên câu hỏi của người dùng
+    long_term_memory = get_rag_context(query=text, n_results=3)
+
+    # 4. ĐÓNG GÓI NHÂN CÁCH VÀ NGỮ CẢNH CHUẨN
+    current_model_name = config.get("model_name", "models/gemini-2.0-flash")
+    system_instruction = config.get("system_instruction", "You are Coach Dyno.")
+    user_profile = config.get("user_profile", "")
+
+    full_persona = f"""
+    {system_instruction}
+    
+    [TEMPORAL & PERIODIZATION CONTEXT]
+    - System Current Time: {now_str}
+    - Target: {countdown_text}
+    - Current Phase: {phase}
+    
+    [RECENT WORKOUTS LOG (LỊCH SỬ CHẠY GẦN NHẤT)]
+    {recent_log}
+    
+    {dynamic_stats}
+    
+    [LONG-TERM MEMORY (TRÍ NHỚ DÀI HẠN TỪ CHROMADB)]
+    Dưới đây là các ký ức hoặc lời khuyên trong quá khứ có liên quan đến câu hỏi hiện tại:
+    {long_term_memory}
+    
+    [USER PROFILE]
+    {user_profile}
+    
+    [INSTRUCTION]
+    - You are chatting directly with the user via Telegram.
+    - Always consider the 'System Current Time', 'Recent Workouts Log', and 'Long-term Memory' to answer contextually.
+    - Keep responses concise, helpful, and friendly.
+    """
+
+    try:
+        raw_history = load_history_for_gemini(chat_id, limit=50)
+        formatted_history = [{"role": msg["role"], "parts": [{"text": msg["parts"][0]}]} for msg in raw_history]
+        
+        # ==========================================
+        # [RESTORED] AI PROMPT OBSERVABILITY
+        # ==========================================
+        if os.getenv("LOG_AI_PROMPTS", "False").lower() == "true":
+            logger.info(f"\n{'='*20} [AI PROMPT: TELEGRAM CHAT] {'='*20}\n[SYSTEM INSTRUCTION & RAG CONTEXT]:\n{full_persona}\n\n[USER MESSAGE]:\n{text}\n{'='*66}\n")        
+
+        chat_session = client.chats.create(
+            model=current_model_name,
+            history=formatted_history,
+            config=types.GenerateContentConfig(
+                system_instruction=full_persona,
+                temperature=0.7
+            )
+        )
+        
+        response = chat_session.send_message(text)
+        reply_text = response.text
+
+        save_message(chat_id, "user", text)
+        save_message(chat_id, "model", reply_text)
+        send_telegram_msg(chat_id, reply_text)
+        
+        # 5. RAG MEMORIZE: Ghi nhớ đoạn hội thoại này
+        if len(reply_text) > 100:
+            doc_id = f"chat_{uuid.uuid4().hex[:8]}"
+            memory_content = f"Vào ngày {now_str}, User hỏi: '{text}'.\nCoach Dyno tư vấn: '{reply_text}'"
+            rag_db.memorize(
+                doc_id=doc_id, 
+                content=memory_content, 
+                domain="coach", 
+                extra_meta={"user_id": chat_id, "type": "chat_advice"}
+            )
+            logger.debug(f"[RAG] Saved chat memory: {doc_id}")
+            
+    except Exception as e:
+        logger.error(f"[TELEGRAM] Chat Error: {e}")
+        send_telegram_msg(chat_id, "⚠️ Coach Dyno đang bị 'chuột rút' hoặc quá tải. Thử /clear xem sao!")

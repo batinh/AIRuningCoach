@@ -1,8 +1,26 @@
 import os
 import logging
+from typing import Optional, Dict, Any
+from dotenv import load_dotenv
+
+# 1. BẮT BUỘC: Nạp file .env TRƯỚC khi import ChromaDB
+load_dotenv()
+
+# 2. ÉP BUỘC CHUYỂN HƯỚNG CACHE & TẮT TELEMETRY VÀO OS.ENVIRON
+if os.getenv("ANONYMIZED_TELEMETRY"):
+    os.environ["ANONYMIZED_TELEMETRY"] = os.getenv("ANONYMIZED_TELEMETRY")
+
+cache_dir = os.getenv("CHROMADB_CACHE_DIR")
+if cache_dir:
+    os.makedirs(cache_dir, exist_ok=True)
+    # Ép ChromaDB và HuggingFace (Model nhúng) lưu file vào thư mục được mount
+    os.environ["CHROMA_CACHE_DIR"] = cache_dir
+    os.environ["HF_HOME"] = cache_dir
+    os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
+
+# 3. SAU KHI ĐÃ GÀI BIẾN MÔI TRƯỜNG XONG, MỚI IMPORT CHROMA
 import chromadb
 from chromadb.utils import embedding_functions
-from typing import Optional, Dict, Any
 
 logger = logging.getLogger("AI_COACH")
 

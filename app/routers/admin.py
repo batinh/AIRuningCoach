@@ -118,6 +118,15 @@ async def save_settings(
     logger.info(f"[ADMIN] Auth User '{username}' saved configuration.")
     return RedirectResponse(url="/admin", status_code=303)
 
+@router.get("/admin/save", include_in_schema=False)
+async def catch_accidental_get_save(username: str = Depends(verify_credentials)):
+    """
+    Bẫy lỗi 405: Nếu user vô tình F5 hoặc gõ thẳng /admin/save lên thanh địa chỉ (GET),
+    hệ thống sẽ nhẹ nhàng chuyển hướng họ về lại trang chủ Admin thay vì báo lỗi.
+    """
+    logger.info(f"[ADMIN] Bắt được request GET đi lạc vào /admin/save từ user '{username}'. Đang đưa về trang chủ...")
+    return RedirectResponse(url="/admin", status_code=303)
+
 @router.get("/admin/test-email")
 async def test_email_route(username: str = Depends(verify_credentials)):
     """Gửi email test để kiểm tra kết nối SMTP."""
